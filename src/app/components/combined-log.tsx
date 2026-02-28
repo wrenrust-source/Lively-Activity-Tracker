@@ -2,7 +2,6 @@ import { Clock, Heart, AlertCircle, MessageSquare, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { LogEntry } from './activity-log';
 import { SymptomEntry } from './symptom-log';
 
@@ -70,88 +69,38 @@ export function CombinedLog({
         <CardTitle className="text-lg">Combined Timeline</CardTitle>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="all" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4">
-            <TabsTrigger value="all" className="text-xs">
-              All ({combinedEntries.length})
-            </TabsTrigger>
-            <TabsTrigger value="activities" className="text-xs">
-              Activities ({activities.length})
-            </TabsTrigger>
-            <TabsTrigger value="symptoms" className="text-xs">
-              Symptoms ({symptoms.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="all" className="space-y-4 mt-0">
-            {Object.keys(groupedByDate).length === 0 ? (
-              <div className="text-center text-muted-foreground py-8 text-sm">
-                No entries yet. Start logging activities and symptoms.
-              </div>
-            ) : (
-              Object.entries(groupedByDate).map(([date, entries]) => (
-                <div key={date} className="space-y-3">
-                  <h3 className="text-sm font-semibold text-muted-foreground px-1">
-                    {date}
-                  </h3>
-                  {entries.map((entry) =>
-                    entry.type === 'activity' ? (
-                      <ActivityItem
-                        key={entry.data.id}
-                        activity={entry.data as LogEntry}
-                        onDelete={onDeleteActivity}
-                        formatTime={formatTime}
-                      />
-                    ) : (
-                      <SymptomItem
-                        key={entry.data.id}
-                        symptom={entry.data as SymptomEntry}
-                        onDelete={onDeleteSymptom}
-                        formatTime={formatTime}
-                        getSeverityColor={getSeverityColor}
-                      />
-                    )
-                  )}
-                </div>
-              ))
-            )}
-          </TabsContent>
-
-          <TabsContent value="activities" className="space-y-3 mt-0">
-            {activities.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8 text-sm">
-                No activities logged yet.
-              </div>
-            ) : (
-              activities.map((activity) => (
-                <ActivityItem
-                  key={activity.id}
-                  activity={activity}
-                  onDelete={onDeleteActivity}
-                  formatTime={formatTime}
-                />
-              ))
-            )}
-          </TabsContent>
-
-          <TabsContent value="symptoms" className="space-y-3 mt-0">
-            {symptoms.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8 text-sm">
-                No symptoms logged yet.
-              </div>
-            ) : (
-              symptoms.map((symptom) => (
-                <SymptomItem
-                  key={symptom.id}
-                  symptom={symptom}
-                  onDelete={onDeleteSymptom}
-                  formatTime={formatTime}
-                  getSeverityColor={getSeverityColor}
-                />
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
+        {/* NAV/TABS removed — render combined entries directly */}
+        {Object.keys(groupedByDate).length === 0 ? (
+          <div className="text-center text-muted-foreground py-8 text-sm">
+            No entries yet. Start logging activities and symptoms.
+          </div>
+        ) : (
+          Object.entries(groupedByDate).map(([date, entries]) => (
+            <div key={date} className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground px-1">
+                {date}
+              </h3>
+              {entries.map((entry) =>
+                entry.type === 'activity' ? (
+                  <ActivityItem
+                    key={entry.data.id}
+                    activity={entry.data as LogEntry}
+                    onDelete={onDeleteActivity}
+                    formatTime={formatTime}
+                  />
+                ) : (
+                  <SymptomItem
+                    key={entry.data.id}
+                    symptom={entry.data as SymptomEntry}
+                    onDelete={onDeleteSymptom}
+                    formatTime={formatTime}
+                    getSeverityColor={getSeverityColor}
+                  />
+                )
+              )}
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
