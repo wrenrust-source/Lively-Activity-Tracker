@@ -61,12 +61,13 @@ export default function App() {
     }
   }, [symptoms]);
 
-  const handleTranscriptionComplete = (text: string, timestamp: Date) => {
+  const handleTranscriptionComplete = (text: string, timestamp: Date, audioId?: string) => {
     const newEntry: LogEntry = {
       id: crypto.randomUUID(),
       timestamp,
       text,
       heartRate: currentHeartRate > 0 ? currentHeartRate : undefined,
+      audioId,
     };
 
     setEntries(prev => [newEntry, ...prev]);

@@ -8,6 +8,7 @@ export interface LogEntry {
   timestamp: Date;
   text: string;
   heartRate?: number;
+  audioId?: string;
 }
 
 interface ActivityLogProps {
