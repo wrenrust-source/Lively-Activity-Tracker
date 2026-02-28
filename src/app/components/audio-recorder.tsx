@@ -8,6 +8,16 @@ interface AudioRecorderProps {
   onTranscriptionComplete: (text: string, timestamp: Date, audioId?: string) => void;
 }
 
+// Initialize Web Speech API
+function initSpeechRecognition() {
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('Web Speech API not available in this browser');
+    return null;
+  }
+  return new SpeechRecognition();
+}
+
 export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -17,77 +27,210 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
   const transcriptRef = useRef<string>('');
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
   useEffect(() => {
-    // Initialize Web Speech API
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = 'en-US';
+    const recognition = initSpeechRecognition();
+    if (recognition) {
+      recognitionRef.current = recognition;
+      
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
 
-      recognitionRef.current.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0].transcript)
-          .join(' ');
+      recognition.onstart = () => {
+        console.log('✓ Speech recognition STARTED');
+      };
+
+      recognition.onresult = (event: any) => {
+        console.log('Speech result received', { resultIndex: event.resultIndex, resultsLength: event.results.length });
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          const confidence = event.results[i][0].confidence;
+          
+          if (event.results[i].isFinal) {
+            console.log('Final result:', transcript, 'confidence:', confidence);
+            finalTranscript += transcript + ' ';
+          } else {
+            console.log('Interim result:', transcript);
+            interimTranscript += transcript;
+          }
+        }
+
+        if (finalTranscript.trim()) {
+          transcriptRef.current += finalTranscript;
+          toast.success('Text captured: ' + finalTranscript.trim());
+        }
         
-        if (transcript.trim()) {
-          transcriptRef.current = transcript;
-          setLiveTranscript(transcript);
+        const displayText = (transcriptRef.current + interimTranscript).trim();
+        if (displayText) {
+          setLiveTranscript(displayText);
         }
       };
 
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error !== 'no-speech') {
-          toast.error('Speech recognition error: ' + event.error);
+      recognition.onerror = (event: any) => {
+        console.error('✗ Speech recognition ERROR:', event.error);
+        toast.error('Speech error: ' + event.error);
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ENDED');
+        // Restart if still recording
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'recording') {
+          return;
+        }
+        try {
+          console.log('Attempting to restart speech recognition...');
+          recognition.start();
+        } catch (e) {
+          console.log('Could not restart recognition:', e);
         }
       };
+    } else {
+      toast.error('Web Speech API not supported in your browser. Try Chrome or Edge.');
     }
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.log('Error stopping recognition:', e);
+        }
+      }
+      if (audioContextRef.current) {
+        try {
+          audioContextRef.current.close();
+        } catch (e) {
+          console.log('Error closing audio context:', e);
+        }
       }
     };
-  }, [onTranscriptionComplete]);
+  }, []);
 
   const startRecording = async () => {
     try {
       audioChunksRef.current = [];
       transcriptRef.current = '';
       recordingStartTimeRef.current = Date.now();
+      setLiveTranscript('');
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('========== STARTING RECORDING ==========');
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false // Disable auto gain to see real levels
+        } 
+      });
+      
+      const audioTrack = stream.getAudioTracks()[0];
+      console.log('✓ Microphone stream acquired');
+      console.log('  Track enabled:', audioTrack.enabled);
+      console.log('  Track state:', audioTrack.readyState);
+      console.log('  Audio settings:', audioTrack.getSettings());
+
+      // Create audio context to monitor levels
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = audioContext;
+      
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      // Monitor audio levels
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let maxLevel = 0;
+      const levelCheckInterval = setInterval(() => {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        if (average > maxLevel) maxLevel = average;
+        if (average > 10) {
+          console.log('🔊 Audio detected! Level:', Math.round(average));
+        }
+      }, 100);
+
+      // Store interval ID to clear later
+      (mediaRecorderRef.current as any)?.levelCheckInterval || (mediaRecorderRef.current = {} as any);
+      (mediaRecorderRef.current as any).levelCheckInterval = levelCheckInterval;
+      (mediaRecorderRef.current as any).maxAudioLevel = () => maxLevel;
       
       // Start MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
       mediaRecorderRef.current = mediaRecorder;
       
-      // Capture audio chunks
+      let totalChunks = 0;
       mediaRecorder.ondataavailable = (event: BlobEvent) => {
-        audioChunksRef.current.push(event.data);
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+          totalChunks++;
+          console.log(`Audio chunk #${totalChunks}: ${event.data.size} bytes`);
+        }
       };
       
-      mediaRecorder.start();
+      mediaRecorder.onerror = (event: any) => {
+        console.error('✗ MediaRecorder error:', event.error);
+        toast.error('Recording error: ' + event.error);
+      };
+
+      mediaRecorder.onstart = () => {
+        console.log('✓ MediaRecorder started');
+      };
+
+      mediaRecorder.onstop = () => {
+        clearInterval(levelCheckInterval);
+        console.log('✓ MediaRecorder stopped. Total chunks:', totalChunks, 'Max audio level:', maxLevel);
+      };
+      
+      mediaRecorder.start(100);
       
       // Start speech recognition
       if (recognitionRef.current) {
-        recognitionRef.current.start();
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          console.error('✗ Could not start speech recognition:', e);
+          toast.error('Speech recognition unavailable. Check browser support.');
+        }
+      } else {
+        console.warn('⚠ Speech recognition not initialized');
+        toast.error('Speech recognition not available in your browser');
       }
       
       setIsRecording(true);
-      toast.info('Recording started - speak now');
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      toast.error('Could not access microphone. Please grant permission.');
+      toast.info('Recording started - please speak clearly');
+    } catch (error: any) {
+      console.error('✗ Error accessing microphone:', error);
+      if (error.name === 'NotAllowedError') {
+        toast.error('Microphone permission denied. Check browser settings.');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No microphone found. Check your device.');
+      } else {
+        toast.error('Could not access microphone: ' + error.message);
+      }
     }
   };
 
   const stopRecording = async () => {
+    console.log('========== STOPPING RECORDING ==========');
+    
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       setIsProcessing(true);
+      
+      // Clear level check interval
+      if ((mediaRecorderRef.current as any).levelCheckInterval) {
+        clearInterval((mediaRecorderRef.current as any).levelCheckInterval);
+      }
       
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
@@ -109,8 +252,56 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
       recognitionRef.current.stop();
     }
 
-    // Save audio and transcript
-    if (audioChunksRef.current.length > 0 && transcriptRef.current.trim()) {
+    // Close audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      await audioContextRef.current.close();
+    }
+
+    // Analyze results
+    const finalTranscript = transcriptRef.current.trim();
+    const totalAudioSize = audioChunksRef.current.reduce((sum, blob) => sum + blob.size, 0);
+    const maxAudioLevel = (mediaRecorderRef.current as any)?.maxAudioLevel?.() || 0;
+    
+    console.log('Recording Analysis:');
+    console.log('  Transcript:', finalTranscript || '(empty)');
+    console.log('  Audio chunks:', audioChunksRef.current.length);
+    console.log('  Total audio size:', totalAudioSize, 'bytes');
+    console.log('  Max audio level:', maxAudioLevel);
+    
+    if (totalAudioSize === 0) {
+      console.warn('⚠ WARNING: No audio data captured at all!');
+      console.warn('  - Microphone might not be recording');
+      console.warn('  - Check microphone permissions and device');
+    }
+    
+    if (audioChunksRef.current.length > 0 && finalTranscript) {
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
+        const timestamp = new Date(recordingStartTimeRef.current);
+        
+        console.log('Saving audio:', audioBlob.size, 'bytes, duration:', duration.toFixed(1), 'seconds');
+        
+        const audioId = await saveAudioRecording(
+          audioBlob,
+          finalTranscript,
+          timestamp,
+          duration
+        );
+
+        onTranscriptionComplete(finalTranscript, timestamp, audioId);
+        toast.success('Entry logged successfully');
+      } catch (error) {
+        console.error('Error saving audio:', error);
+        toast.error('Failed to save audio recording');
+      }
+    } else if (finalTranscript) {
+      const timestamp = new Date(recordingStartTimeRef.current);
+      onTranscriptionComplete(finalTranscript, timestamp);
+      toast.success('Entry logged (text only)');
+    } else if (audioChunksRef.current.length > 0) {
+      // Audio was captured but no speech detected
+      console.log('Audio captured but no transcript. Attempting to save audio-only...');
       try {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
@@ -118,24 +309,20 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
         
         const audioId = await saveAudioRecording(
           audioBlob,
-          transcriptRef.current,
+          '[No speech detected]',
           timestamp,
           duration
         );
-
-        onTranscriptionComplete(transcriptRef.current, timestamp, audioId);
-        toast.success('Entry logged successfully');
+        
+        onTranscriptionComplete('[No speech detected]', timestamp, audioId);
+        toast.success('Audio saved (speech not detected)');
       } catch (error) {
         console.error('Error saving audio:', error);
         toast.error('Failed to save audio recording');
       }
-    } else if (transcriptRef.current.trim()) {
-      // Fallback: save text only if no audio chunks
-      const timestamp = new Date(recordingStartTimeRef.current);
-      onTranscriptionComplete(transcriptRef.current, timestamp);
-      toast.success('Entry logged successfully');
     } else {
-      toast.error('No speech detected. Please try again.');
+      console.error('No audio and no transcript');
+      toast.error('No audio detected. Check your microphone and try again.');
     }
 
     setIsRecording(false);
@@ -144,6 +331,12 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
   };
 
   const abortRecording = () => {
+    console.log('Recording aborted by user');
+    
+    if ((mediaRecorderRef.current as any)?.levelCheckInterval) {
+      clearInterval((mediaRecorderRef.current as any).levelCheckInterval);
+    }
+    
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
@@ -151,6 +344,10 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
     if (recognitionRef.current) {
       recognitionRef.current.stop();
+    }
+    
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
     }
 
     audioChunksRef.current = [];
