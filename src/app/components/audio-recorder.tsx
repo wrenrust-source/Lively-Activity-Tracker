@@ -18,6 +18,8 @@ function initSpeechRecognition() {
   return new SpeechRecognition();
 }
 
+let recognitionRestartTimeout: any = null;
+
 export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -29,6 +31,7 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
   const transcriptRef = useRef<string>('');
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const isRecordingRef = useRef(false);
 
   useEffect(() => {
     const recognition = initSpeechRecognition();
@@ -42,10 +45,21 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
       recognition.onstart = () => {
         console.log('✓ Speech recognition STARTED');
+        if (recognitionRestartTimeout) {
+          clearTimeout(recognitionRestartTimeout);
+          recognitionRestartTimeout = null;
+        }
       };
 
       recognition.onresult = (event: any) => {
         console.log('Speech result received', { resultIndex: event.resultIndex, resultsLength: event.results.length });
+        
+        // Clear any pending restart timeout when we get results
+        if (recognitionRestartTimeout) {
+          clearTimeout(recognitionRestartTimeout);
+          recognitionRestartTimeout = null;
+        }
+        
         let interimTranscript = '';
         let finalTranscript = '';
 
@@ -64,7 +78,6 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
         if (finalTranscript.trim()) {
           transcriptRef.current += finalTranscript;
-          toast.success('Text captured: ' + finalTranscript.trim());
         }
         
         const displayText = (transcriptRef.current + interimTranscript).trim();
@@ -75,20 +88,47 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
       recognition.onerror = (event: any) => {
         console.error('✗ Speech recognition ERROR:', event.error);
-        toast.error('Speech error: ' + event.error);
+        
+        // Don't show error toast for these harmless errors
+        if (!['no-speech', 'audio-capture', 'network'].includes(event.error)) {
+          toast.error('Speech error: ' + event.error, { duration: 2000 });
+        }
+        
+        // Attempt to restart on error if still recording
+        if (isRecordingRef.current) {
+          console.log('Attempting to restart recognition after error...');
+          try {
+            recognitionRestartTimeout = setTimeout(() => {
+              recognition.start();
+            }, 100);
+          } catch (e) {
+            console.log('Could not restart recognition:', e);
+          }
+        }
       };
 
       recognition.onend = () => {
         console.log('Speech recognition ENDED');
+        
         // Restart if still recording
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'recording') {
-          return;
-        }
-        try {
-          console.log('Attempting to restart speech recognition...');
-          recognition.start();
-        } catch (e) {
-          console.log('Could not restart recognition:', e);
+        if (isRecordingRef.current) {
+          if (recognitionRestartTimeout) {
+            clearTimeout(recognitionRestartTimeout);
+          }
+          
+          console.log('Restarting speech recognition for continuous capture...');
+          try {
+            recognitionRestartTimeout = setTimeout(() => {
+              try {
+                recognition.start();
+                console.log('✓ Recognition restarted');
+              } catch (e) {
+                console.log('Could not restart recognition:', e);
+              }
+            }, 100);
+          } catch (e) {
+            console.log('Error setting up restart:', e);
+          }
         }
       };
     } else {
@@ -96,6 +136,10 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
     }
 
     return () => {
+      if (recognitionRestartTimeout) {
+        clearTimeout(recognitionRestartTimeout);
+        recognitionRestartTimeout = null;
+      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -159,15 +203,15 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
       }, 100);
 
       // Store interval ID to clear later
-      (mediaRecorderRef.current as any)?.levelCheckInterval || (mediaRecorderRef.current = {} as any);
-      (mediaRecorderRef.current as any).levelCheckInterval = levelCheckInterval;
-      (mediaRecorderRef.current as any).maxAudioLevel = () => maxLevel;
-      
       // Start MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       });
       mediaRecorderRef.current = mediaRecorder;
+      
+      // Attach properties after assigning mediaRecorder
+      (mediaRecorder as any).levelCheckInterval = levelCheckInterval;
+      (mediaRecorder as any).maxAudioLevel = () => maxLevel;
       
       let totalChunks = 0;
       mediaRecorder.ondataavailable = (event: BlobEvent) => {
@@ -208,6 +252,7 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
       }
       
       setIsRecording(true);
+      isRecordingRef.current = true;
       toast.info('Recording started - please speak clearly');
     } catch (error: any) {
       console.error('✗ Error accessing microphone:', error);
@@ -223,6 +268,12 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
   const stopRecording = async () => {
     console.log('========== STOPPING RECORDING ==========');
+    
+    // Clear restart timeout
+    if (recognitionRestartTimeout) {
+      clearTimeout(recognitionRestartTimeout);
+      recognitionRestartTimeout = null;
+    }
     
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       setIsProcessing(true);
@@ -326,12 +377,19 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
     }
 
     setIsRecording(false);
+    isRecordingRef.current = false;
     setIsProcessing(false);
     setLiveTranscript('');
   };
 
   const abortRecording = () => {
     console.log('Recording aborted by user');
+    
+    // Clear restart timeout
+    if (recognitionRestartTimeout) {
+      clearTimeout(recognitionRestartTimeout);
+      recognitionRestartTimeout = null;
+    }
     
     if ((mediaRecorderRef.current as any)?.levelCheckInterval) {
       clearInterval((mediaRecorderRef.current as any).levelCheckInterval);
@@ -354,6 +412,7 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
     transcriptRef.current = '';
     
     setIsRecording(false);
+    isRecordingRef.current = false;
     setIsProcessing(false);
     setLiveTranscript('');
     toast.info('Recording cancelled');
