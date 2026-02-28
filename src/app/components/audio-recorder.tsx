@@ -1,99 +1,158 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, Trash2, Check, Edit2 } from 'lucide-react';
+import { Mic, Square, Loader2, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
+import { saveAudioRecording } from '../../lib/audioStorage';
 
 interface AudioRecorderProps {
-  onTranscriptionComplete: (text: string, timestamp: Date) => void;
+  onTranscriptionComplete: (text: string, timestamp: Date, audioId?: string) => void;
 }
+
+// Initialize Web Speech API
+function initSpeechRecognition() {
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('Web Speech API not available in this browser');
+    return null;
+  }
+  return new SpeechRecognition();
+}
+
+let recognitionRestartTimeout: any = null;
 
 export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [interimTranscript, setInterimTranscript] = useState('');
-  const [finalTranscript, setFinalTranscript] = useState('');
-  const [showEditButton, setShowEditButton] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editableText, setEditableText] = useState('');
-  
+  const [liveTranscript, setLiveTranscript] = useState('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recognitionRef = useRef<any>(null);
-  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartTimeRef = useRef<number>(0);
+  const transcriptRef = useRef<string>('');
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const isRecordingRef = useRef(false);
 
   useEffect(() => {
-    // Initialize Web Speech API
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'en-US';
+    const recognition = initSpeechRecognition();
+    if (recognition) {
+      recognitionRef.current = recognition;
+      
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
 
-      recognitionRef.current.onresult = (event: any) => {
-        let interim = '';
-        let newFinal = '';
+      recognition.onstart = () => {
+        console.log('✓ Speech recognition STARTED');
+        if (recognitionRestartTimeout) {
+          clearTimeout(recognitionRestartTimeout);
+          recognitionRestartTimeout = null;
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        console.log('Speech result received', { resultIndex: event.resultIndex, resultsLength: event.results.length });
+        
+        // Clear any pending restart timeout when we get results
+        if (recognitionRestartTimeout) {
+          clearTimeout(recognitionRestartTimeout);
+          recognitionRestartTimeout = null;
+        }
+        
+        let interimTranscript = '';
+        let finalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcriptSegment = event.results[i][0].transcript;
-
+          const transcript = event.results[i][0].transcript;
+          const confidence = event.results[i][0].confidence;
+          
           if (event.results[i].isFinal) {
-            newFinal += transcriptSegment + ' ';
+            console.log('Final result:', transcript, 'confidence:', confidence);
+            finalTranscript += transcript + ' ';
           } else {
-            interim += transcriptSegment;
+            console.log('Interim result:', transcript);
+            interimTranscript += transcript;
           }
         }
 
-        // Update interim text
-        if (interim) {
-          setInterimTranscript(interim);
-          
-          // Clear the silence timeout when user is speaking
-          if (silenceTimeoutRef.current) {
-            clearTimeout(silenceTimeoutRef.current);
-            silenceTimeoutRef.current = null;
-          }
+        if (finalTranscript.trim()) {
+          transcriptRef.current += finalTranscript;
         }
-
-        // Accumulate final text
-        if (newFinal.trim()) {
-          setFinalTranscript((prev) => prev + newFinal);
-          setInterimTranscript('');
-          
-          // Start silence timer
-          if (silenceTimeoutRef.current) {
-            clearTimeout(silenceTimeoutRef.current);
-          }
-          silenceTimeoutRef.current = setTimeout(() => {
-            if (isRecordingRef.current) {
-              setShowEditButton(true);
-            }
-          }, 2500);
+        
+        const displayText = (transcriptRef.current + interimTranscript).trim();
+        if (displayText) {
+          setLiveTranscript(displayText);
         }
       };
 
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error !== 'no-speech') {
-          toast.error('Speech recognition error: ' + event.error);
+      recognition.onerror = (event: any) => {
+        console.error('✗ Speech recognition ERROR:', event.error);
+        
+        // Don't show error toast for these harmless errors
+        if (!['no-speech', 'audio-capture', 'network'].includes(event.error)) {
+          toast.error('Speech error: ' + event.error, { duration: 2000 });
         }
-      };
-
-      recognitionRef.current.onend = () => {
-        // Auto-restart recognition if still recording to handle pauses better
-        if (isRecordingRef.current && recognitionRef.current) {
+        
+        // Attempt to restart on error if still recording
+        if (isRecordingRef.current) {
+          console.log('Attempting to restart recognition after error...');
           try {
-            recognitionRef.current.start();
-          } catch (error) {
-            console.error('Error restarting recognition:', error);
+            recognitionRestartTimeout = setTimeout(() => {
+              recognition.start();
+            }, 100);
+          } catch (e) {
+            console.log('Could not restart recognition:', e);
           }
         }
       };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ENDED');
+        
+        // Restart if still recording
+        if (isRecordingRef.current) {
+          if (recognitionRestartTimeout) {
+            clearTimeout(recognitionRestartTimeout);
+          }
+          
+          console.log('Restarting speech recognition for continuous capture...');
+          try {
+            recognitionRestartTimeout = setTimeout(() => {
+              try {
+                recognition.start();
+                console.log('✓ Recognition restarted');
+              } catch (e) {
+                console.log('Could not restart recognition:', e);
+              }
+            }, 100);
+          } catch (e) {
+            console.log('Error setting up restart:', e);
+          }
+        }
+      };
+    } else {
+      toast.error('Web Speech API not supported in your browser. Try Chrome or Edge.');
     }
 
     return () => {
+      if (recognitionRestartTimeout) {
+        clearTimeout(recognitionRestartTimeout);
+        recognitionRestartTimeout = null;
+      }
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.log('Error stopping recognition:', e);
+        }
+      }
+      if (audioContextRef.current) {
+        try {
+          audioContextRef.current.close();
+        } catch (e) {
+          console.log('Error closing audio context:', e);
+        }
       }
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
@@ -103,13 +162,84 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      transcriptRef.current = '';
+      recordingStartTimeRef.current = Date.now();
+      setLiveTranscript('');
+
+      console.log('========== STARTING RECORDING ==========');
       
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false // Disable auto gain to see real levels
+        } 
+      });
+      
+      const audioTrack = stream.getAudioTracks()[0];
+      console.log('✓ Microphone stream acquired');
+      console.log('  Track enabled:', audioTrack.enabled);
+      console.log('  Track state:', audioTrack.readyState);
+      console.log('  Audio settings:', audioTrack.getSettings());
+
+      // Create audio context to monitor levels
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = audioContext;
+      
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      // Monitor audio levels
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let maxLevel = 0;
+      const levelCheckInterval = setInterval(() => {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        if (average > maxLevel) maxLevel = average;
+        if (average > 10) {
+          console.log('🔊 Audio detected! Level:', Math.round(average));
+        }
+      }, 100);
+
+      // Store interval ID to clear later
       // Start MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
       mediaRecorderRef.current = mediaRecorder;
       
-      mediaRecorder.start();
+      // Attach properties after assigning mediaRecorder
+      (mediaRecorder as any).levelCheckInterval = levelCheckInterval;
+      (mediaRecorder as any).maxAudioLevel = () => maxLevel;
+      
+      let totalChunks = 0;
+      mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+          totalChunks++;
+          console.log(`Audio chunk #${totalChunks}: ${event.data.size} bytes`);
+        }
+      };
+      
+      mediaRecorder.onerror = (event: any) => {
+        console.error('✗ MediaRecorder error:', event.error);
+        toast.error('Recording error: ' + event.error);
+      };
+
+      mediaRecorder.onstart = () => {
+        console.log('✓ MediaRecorder started');
+      };
+
+      mediaRecorder.onstop = () => {
+        clearInterval(levelCheckInterval);
+        console.log('✓ MediaRecorder stopped. Total chunks:', totalChunks, 'Max audio level:', maxLevel);
+      };
+      
+      mediaRecorder.start(100);
       
       // Start speech recognition
       isRecordingRef.current = true;
@@ -120,19 +250,160 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
       setIsEditing(false);
       
       if (recognitionRef.current) {
-        recognitionRef.current.start();
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          console.error('✗ Could not start speech recognition:', e);
+          toast.error('Speech recognition unavailable. Check browser support.');
+        }
+      } else {
+        console.warn('⚠ Speech recognition not initialized');
+        toast.error('Speech recognition not available in your browser');
       }
       
-      toast.info('Recording started - speak now');
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      toast.error('Could not access microphone. Please grant permission.');
-      isRecordingRef.current = false;
+      setIsRecording(true);
+      isRecordingRef.current = true;
+      toast.info('Recording started - please speak clearly');
+    } catch (error: any) {
+      console.error('✗ Error accessing microphone:', error);
+      if (error.name === 'NotAllowedError') {
+        toast.error('Microphone permission denied. Check browser settings.');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No microphone found. Check your device.');
+      } else {
+        toast.error('Could not access microphone: ' + error.message);
+      }
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
+    console.log('========== STOPPING RECORDING ==========');
+    
+    // Clear restart timeout
+    if (recognitionRestartTimeout) {
+      clearTimeout(recognitionRestartTimeout);
+      recognitionRestartTimeout = null;
+    }
+    
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      setIsProcessing(true);
+      
+      // Clear level check interval
+      if ((mediaRecorderRef.current as any).levelCheckInterval) {
+        clearInterval((mediaRecorderRef.current as any).levelCheckInterval);
+      }
+      
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      
+      // Wait for the last data chunk to be processed
+      await new Promise(resolve => {
+        const checkStop = () => {
+          if (mediaRecorderRef.current?.state === 'inactive') {
+            resolve(null);
+          } else {
+            setTimeout(checkStop, 50);
+          }
+        };
+        checkStop();
+      });
+    }
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+
+    // Close audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      await audioContextRef.current.close();
+    }
+
+    // Analyze results
+    const finalTranscript = transcriptRef.current.trim();
+    const totalAudioSize = audioChunksRef.current.reduce((sum, blob) => sum + blob.size, 0);
+    const maxAudioLevel = (mediaRecorderRef.current as any)?.maxAudioLevel?.() || 0;
+    
+    console.log('Recording Analysis:');
+    console.log('  Transcript:', finalTranscript || '(empty)');
+    console.log('  Audio chunks:', audioChunksRef.current.length);
+    console.log('  Total audio size:', totalAudioSize, 'bytes');
+    console.log('  Max audio level:', maxAudioLevel);
+    
+    if (totalAudioSize === 0) {
+      console.warn('⚠ WARNING: No audio data captured at all!');
+      console.warn('  - Microphone might not be recording');
+      console.warn('  - Check microphone permissions and device');
+    }
+    
+    if (audioChunksRef.current.length > 0 && finalTranscript) {
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
+        const timestamp = new Date(recordingStartTimeRef.current);
+        
+        console.log('Saving audio:', audioBlob.size, 'bytes, duration:', duration.toFixed(1), 'seconds');
+        
+        const audioId = await saveAudioRecording(
+          audioBlob,
+          finalTranscript,
+          timestamp,
+          duration
+        );
+
+        onTranscriptionComplete(finalTranscript, timestamp, audioId);
+        toast.success('Entry logged successfully');
+      } catch (error) {
+        console.error('Error saving audio:', error);
+        toast.error('Failed to save audio recording');
+      }
+    } else if (finalTranscript) {
+      const timestamp = new Date(recordingStartTimeRef.current);
+      onTranscriptionComplete(finalTranscript, timestamp);
+      toast.success('Entry logged (text only)');
+    } else if (audioChunksRef.current.length > 0) {
+      // Audio was captured but no speech detected
+      console.log('Audio captured but no transcript. Attempting to save audio-only...');
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
+        const timestamp = new Date(recordingStartTimeRef.current);
+        
+        const audioId = await saveAudioRecording(
+          audioBlob,
+          '[No speech detected]',
+          timestamp,
+          duration
+        );
+        
+        onTranscriptionComplete('[No speech detected]', timestamp, audioId);
+        toast.success('Audio saved (speech not detected)');
+      } catch (error) {
+        console.error('Error saving audio:', error);
+        toast.error('Failed to save audio recording');
+      }
+    } else {
+      console.error('No audio and no transcript');
+      toast.error('No audio detected. Check your microphone and try again.');
+    }
+
+    setIsRecording(false);
     isRecordingRef.current = false;
+    setIsProcessing(false);
+    setLiveTranscript('');
+  };
+
+  const abortRecording = () => {
+    console.log('Recording aborted by user');
+    
+    // Clear restart timeout
+    if (recognitionRestartTimeout) {
+      clearTimeout(recognitionRestartTimeout);
+      recognitionRestartTimeout = null;
+    }
+    
+    if ((mediaRecorderRef.current as any)?.levelCheckInterval) {
+      clearInterval((mediaRecorderRef.current as any).levelCheckInterval);
+    }
     
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -142,67 +413,19 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
-
-    setIsRecording(false);
-    setIsProcessing(false);
-    setInterimTranscript('');
-  };
-
-  const abortRecording = () => {
-    isRecordingRef.current = false;
     
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
     }
 
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-    }
-
-    if (silenceTimeoutRef.current) {
-      clearTimeout(silenceTimeoutRef.current);
-      silenceTimeoutRef.current = null;
-    }
-
+    audioChunksRef.current = [];
+    transcriptRef.current = '';
+    
     setIsRecording(false);
+    isRecordingRef.current = false;
     setIsProcessing(false);
-    setInterimTranscript('');
-    setFinalTranscript('');
-    setShowEditButton(false);
-    setIsEditing(false);
-    setEditableText('');
+    setLiveTranscript('');
     toast.info('Recording cancelled');
-  };
-
-  const confirmEntry = () => {
-    const textToLog = editableText || finalTranscript;
-    if (!textToLog.trim()) {
-      toast.error('No text to log');
-      return;
-    }
-
-    onTranscriptionComplete(textToLog.trim(), new Date());
-    toast.success('Entry logged successfully');
-    
-    // Reset state and exit recording screen
-    isRecordingRef.current = false;
-    setIsRecording(false);
-    setFinalTranscript('');
-    setInterimTranscript('');
-    setShowEditButton(false);
-    setIsEditing(false);
-    setEditableText('');
-  };
-
-  const startEditing = () => {
-    setEditableText(finalTranscript);
-    setIsEditing(true);
-  };
-
-  const cancelEditing = () => {
-    setIsEditing(false);
-    setEditableText('');
   };
 
   return (
@@ -243,74 +466,43 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
         )}
       </div>
 
-      {/* Recording Preview Overlay */}
+      {/* Recording Overlay with Live Transcript */}
       {isRecording && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 flex flex-col items-center justify-center p-6 z-50">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-white text-center max-w-lg">
-              {isEditing ? (
-                <textarea
-                  value={editableText}
-                  onChange={(e) => setEditableText(e.target.value)}
-                  className="w-full p-4 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 resize-none"
-                  rows={5}
-                  autoFocus
-                />
-              ) : (
-                <div className="text-lg leading-relaxed mb-4">
-                  {interimTranscript ? (
-                    <span className="opacity-90">{interimTranscript}</span>
-                  ) : finalTranscript ? (
-                    <span className="opacity-90">{finalTranscript}</span>
-                  ) : (
-                    <span className="opacity-50 italic">Listening...</span>
-                  )}
-                </div>
-              )}
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex flex-col justify-center items-center p-4 max-w-[430px] mx-auto">
+          <div className="w-full max-w-sm">
+            {/* Text Preview Area */}
+            <div className="bg-background/95 rounded-2xl p-6 min-h-32 flex items-center justify-center shadow-lg mb-8">
+              <p className="text-center text-sm text-foreground/70 opacity-80 leading-relaxed whitespace-pre-wrap">
+                {liveTranscript || (
+                  <span className="text-muted-foreground italic">Listening...</span>
+                )}
+              </p>
+            </div>
+
+            {/* Bottom Controls */}
+            <div className="flex items-center justify-between gap-4">
+              {/* Abort Button */}
+              <button
+                onClick={abortRecording}
+                className="w-12 h-12 rounded-full bg-destructive/20 hover:bg-destructive/30 flex items-center justify-center transition-colors"
+                title="Abort recording"
+              >
+                <Trash2 className="w-5 h-5 text-destructive" />
+              </button>
+
+              {/* Spacer - takes up middle space */}
+              <div className="flex-1" />
+
+              {/* Stop Button */}
+              <button
+                onClick={stopRecording}
+                className="w-12 h-12 rounded-full bg-primary hover:bg-primary/90 flex items-center justify-center transition-colors animate-pulse"
+                title="Stop recording"
+              >
+                <Square className="w-5 h-5 text-primary-foreground" />
+              </button>
             </div>
           </div>
-
-          {/* Edit Button - appears after 2.5s of silence */}
-          {showEditButton && !isEditing && finalTranscript && (
-            <button
-              onClick={startEditing}
-              className="absolute top-8 right-8 p-2 rounded-full bg-blue-500 hover:bg-blue-600 text-white transition-colors animate-in fade-in duration-300"
-              title="Edit text"
-            >
-              <Edit2 className="w-5 h-5" />
-            </button>
-          )}
-
-          {/* Abort Button */}
-          <button
-            onClick={abortRecording}
-            className="absolute bottom-8 left-8 p-3 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors animate-in fade-in slide-in-from-bottom-4 duration-300"
-            title="Cancel recording"
-          >
-            <Trash2 className="w-6 h-6" />
-          </button>
-
-          {/* Confirm Button - bottom right */}
-          {finalTranscript && (
-            <button
-              onClick={confirmEntry}
-              className="absolute bottom-8 right-8 p-3 rounded-full bg-green-500 hover:bg-green-600 text-white transition-colors animate-in fade-in slide-in-from-bottom-4 duration-300"
-              title="Confirm entry"
-            >
-              <Check className="w-6 h-6" />
-            </button>
-          )}
-
-          {/* Cancel Edit Button */}
-          {isEditing && (
-            <button
-              onClick={cancelEditing}
-              className="absolute bottom-24 right-8 p-2 rounded-full bg-gray-500 hover:bg-gray-600 text-white transition-colors"
-              title="Cancel editing"
-            >
-              <Square className="w-5 h-5" />
-            </button>
-          )}
         </div>
       )}
     </>

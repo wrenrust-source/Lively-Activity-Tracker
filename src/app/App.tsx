@@ -61,12 +61,13 @@ export default function App() {
     }
   }, [symptoms]);
 
-  const handleTranscriptionComplete = (text: string, timestamp: Date) => {
+  const handleTranscriptionComplete = (text: string, timestamp: Date, audioId?: string) => {
     const newEntry: LogEntry = {
       id: crypto.randomUUID(),
       timestamp,
       text,
       heartRate: currentHeartRate > 0 ? currentHeartRate : undefined,
+      audioId,
     };
 
     setEntries(prev => [newEntry, ...prev]);
@@ -74,6 +75,12 @@ export default function App() {
 
   const handleDeleteEntry = (id: string) => {
     setEntries(prev => prev.filter(entry => entry.id !== id));
+  };
+
+  const handleEditEntry = (id: string, newText: string) => {
+    setEntries(prev => prev.map(entry =>
+      entry.id === id ? { ...entry, text: newText } : entry
+    ));
   };
 
   const handleSymptomAdd = (symptom: string, severity: number, timestamp: Date) => {
@@ -100,7 +107,7 @@ export default function App() {
       <div className="bg-primary text-primary-foreground px-6 py-4 pb-6 rounded-b-3xl shadow-lg">
         <div className="flex items-center gap-3 mb-2">
           <HeartPulse className="w-7 h-7" />
-          <h1 className="text-xl font-bold">Health Tracker</h1>
+          <h1 className="text-xl font-bold">Lively</h1>
         </div>
         <p className="text-sm opacity-90">
           Find correlations betwen daily activities and symptoms
@@ -111,7 +118,7 @@ export default function App() {
       <div className="flex-1 overflow-y-auto pb-32">
         <div className="px-4 py-6 space-y-6">
           {/* Health Insights */}
-          <HealthInsights entries={entries} />
+          <HealthInsights entries={entries} symptoms={symptoms} />
 
           {/* Smart Watch Card */}
           <SmartwatchConnector onHeartRateUpdate={handleHeartRateUpdate} />
@@ -130,11 +137,12 @@ export default function App() {
                 symptoms={symptoms}
                 onDeleteActivity={handleDeleteEntry}
                 onDeleteSymptom={handleDeleteSymptom}
+                onEditActivity={handleEditEntry}
               />
             </TabsContent>
 
             <TabsContent value="activities" className="mt-4">
-              <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} />
+              <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} />
             </TabsContent>
 
             <TabsContent value="symptoms" className="mt-4 space-y-4">
