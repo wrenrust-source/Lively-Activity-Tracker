@@ -2,12 +2,17 @@ import { useState, useEffect } from 'react';
 import { AudioRecorder } from './components/audio-recorder';
 import { SmartwatchConnector } from './components/smartwatch-connector';
 import { ActivityLog, LogEntry } from './components/activity-log';
+import { SymptomTracker } from './components/symptom-tracker';
+import { SymptomLog, SymptomEntry } from './components/symptom-log';
+import { CombinedLog } from './components/combined-log';
 import { HealthInsights } from './components/health-insights';
 import { Toaster } from './components/ui/sonner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { HeartPulse } from 'lucide-react';
 
 export default function App() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [symptoms, setSymptoms] = useState<SymptomEntry[]>([]);
   const [currentHeartRate, setCurrentHeartRate] = useState<number>(0);
 
   // Load entries from localStorage on mount
@@ -26,6 +31,20 @@ export default function App() {
         console.error('Error loading stored entries:', error);
       }
     }
+
+    const storedSymptoms = localStorage.getItem('symptomLog');
+    if (storedSymptoms) {
+      try {
+        const parsed = JSON.parse(storedSymptoms);
+        const symptomsWithDates = parsed.map((symptom: any) => ({
+          ...symptom,
+          timestamp: new Date(symptom.timestamp),
+        }));
+        setSymptoms(symptomsWithDates);
+      } catch (error) {
+        console.error('Error loading stored symptoms:', error);
+      }
+    }
   }, []);
 
   // Save entries to localStorage whenever they change
@@ -34,6 +53,13 @@ export default function App() {
       localStorage.setItem('healthLog', JSON.stringify(entries));
     }
   }, [entries]);
+
+  // Save symptoms to localStorage whenever they change
+  useEffect(() => {
+    if (symptoms.length > 0) {
+      localStorage.setItem('symptomLog', JSON.stringify(symptoms));
+    }
+  }, [symptoms]);
 
   const handleTranscriptionComplete = (text: string, timestamp: Date) => {
     const newEntry: LogEntry = {
@@ -50,6 +76,20 @@ export default function App() {
     setEntries(prev => prev.filter(entry => entry.id !== id));
   };
 
+  const handleSymptomAdd = (symptom: string, severity: number, timestamp: Date) => {
+    const newSymptom: SymptomEntry = {
+      id: crypto.randomUUID(),
+      timestamp,
+      symptom,
+      severity,
+    };
+    setSymptoms(prev => [newSymptom, ...prev]);
+  };
+
+  const handleDeleteSymptom = (id: string) => {
+    setSymptoms(prev => prev.filter(symptom => symptom.id !== id));
+  };
+
   const handleHeartRateUpdate = (heartRate: number) => {
     setCurrentHeartRate(heartRate);
   };
@@ -63,7 +103,7 @@ export default function App() {
           <h1 className="text-xl font-bold">Health Tracker</h1>
         </div>
         <p className="text-sm opacity-90">
-          Track activities & feelings
+          Find correlations betwen daily activities and symptoms
         </p>
       </div>
 
@@ -76,8 +116,32 @@ export default function App() {
           {/* Smart Watch Card */}
           <SmartwatchConnector onHeartRateUpdate={handleHeartRateUpdate} />
 
-          {/* Activity Log */}
-          <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} />
+          {/* Tabs for different logs */}
+          <Tabs defaultValue="combined" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="combined">Combined</TabsTrigger>
+              <TabsTrigger value="activities">Activities</TabsTrigger>
+              <TabsTrigger value="symptoms">Symptoms</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="combined" className="mt-4">
+              <CombinedLog
+                activities={entries}
+                symptoms={symptoms}
+                onDeleteActivity={handleDeleteEntry}
+                onDeleteSymptom={handleDeleteSymptom}
+              />
+            </TabsContent>
+
+            <TabsContent value="activities" className="mt-4">
+              <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} />
+            </TabsContent>
+
+            <TabsContent value="symptoms" className="mt-4 space-y-4">
+              <SymptomTracker onSymptomAdd={handleSymptomAdd} />
+              <SymptomLog symptoms={symptoms} onDeleteSymptom={handleDeleteSymptom} />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 
