@@ -26,7 +26,7 @@ export function CombinedLog({
     return new Date(date).toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
-    });
+    }); 
   };
 
   const formatDate = (date: Date) => {
@@ -121,7 +121,7 @@ function ActivityItem({
         <div className="flex-1 space-y-2">
           <div className="flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-blue-600" />
-            <span className="text-xs font-medium text-blue-600">Activity</span>
+            <span className="text-xs font-medium text-blue-600">Audio</span>
             <span className="text-xs text-muted-foreground">
               {formatTime(activity.timestamp)}
             </span>

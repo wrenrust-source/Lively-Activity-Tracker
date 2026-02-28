@@ -120,7 +120,7 @@ export default function App() {
           <Tabs defaultValue="combined" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="combined">Combined</TabsTrigger>
-              <TabsTrigger value="activities">Activities</TabsTrigger>
+              <TabsTrigger value="activities">Audio Log</TabsTrigger>
               <TabsTrigger value="symptoms">Symptoms</TabsTrigger>
             </TabsList>
 
