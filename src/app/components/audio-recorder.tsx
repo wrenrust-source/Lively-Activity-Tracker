@@ -50,6 +50,10 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
 
   const startRecording = async () => {
     try {
+      // TEST: Increment counter by logging a test entry
+      onTranscriptionComplete(`Test recording #${Math.random().toString(36).substr(2, 5)}`, new Date());
+      toast.success('Test entry logged - counter incremented!');
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Start MediaRecorder
