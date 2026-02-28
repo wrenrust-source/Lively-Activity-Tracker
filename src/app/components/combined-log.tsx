@@ -10,6 +10,7 @@ interface CombinedLogProps {
   symptoms: SymptomEntry[];
   onDeleteActivity: (id: string) => void;
   onDeleteSymptom: (id: string) => void;
+  hrSamples?: { timestamp: string; bpm: number }[];
 }
 
 type CombinedEntry = 
@@ -21,6 +22,7 @@ export function CombinedLog({
   symptoms,
   onDeleteActivity,
   onDeleteSymptom,
+  hrSamples = [],
 }: CombinedLogProps) {
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', {
@@ -63,13 +65,64 @@ export function CombinedLog({
     return acc;
   }, {} as Record<string, CombinedEntry[]>);
 
+  // Build HR summaries per 30-minute buckets, keyed by same date label
+  const hrSummariesByDate = (hrSamples || []).reduce((acc: Record<string, { timeLabel: string; avg: number; high: number; low: number }[]>, s) => {
+    try {
+      const dt = new Date(s.timestamp);
+      // build a bucket timestamp floored to the nearest 30 minutes
+      const mins = dt.getMinutes();
+      const flooredMin = mins < 30 ? 0 : 30;
+      const bucket = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), flooredMin, 0, 0);
+      const dateKey = formatDate(bucket.toISOString());
+      const bucketKey = bucket.toISOString();
+      acc[dateKey] = acc[dateKey] || [];
+      let b = acc[dateKey].find(x => x.timeLabel === bucketKey);
+      if (!b) {
+        // temporarily store as object with samples array on a hidden property
+        (acc as any)[dateKey + '::samples'] = (acc as any)[dateKey + '::samples'] || {};
+        (acc as any)[dateKey + '::samples'][bucketKey] = [(s.bpm)];
+        acc[dateKey].push({ timeLabel: bucketKey, avg: s.bpm, high: s.bpm, low: s.bpm });
+      } else {
+        // should not reach due to representation — leave for clarity
+      }
+    } catch {
+      // ignore malformed sample
+    }
+    return acc;
+  }, {});
+
+  // Finalize hr summaries (compute avg/high/low per bucket)
+  // We're reconstructing buckets because above we stored raw samples in a hidden map
+  const hrBuckets: Record<string, { timeLabel: string; avg: number; high: number; low: number }[]> = {};
+  const sampleBuckets: Record<string, number[]> = {};
+  (hrSamples || []).forEach(s => {
+    const dt = new Date(s.timestamp);
+    const mins = dt.getMinutes();
+    const flooredMin = mins < 30 ? 0 : 30;
+    const bucket = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), flooredMin, 0, 0);
+    const dateKey = formatDate(bucket.toISOString());
+    const bucketKey = bucket.toISOString();
+    sampleBuckets[bucketKey] = sampleBuckets[bucketKey] || [];
+    sampleBuckets[bucketKey].push(s.bpm);
+    hrBuckets[dateKey] = hrBuckets[dateKey] || [];
+  });
+  Object.keys(sampleBuckets).forEach(bucketKey => {
+    const dt = new Date(bucketKey);
+    const dateKey = formatDate(bucketKey);
+    const arr = sampleBuckets[bucketKey];
+    const avg = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+    const high = Math.max(...arr);
+    const low = Math.min(...arr);
+    hrBuckets[dateKey].push({ timeLabel: bucketKey, avg, high, low });
+  });
+
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Combined Timeline</CardTitle>
       </CardHeader>
       <CardContent>
-        {/* NAV/TABS removed — render combined entries directly */}
+        {/* HR summaries: display for each date above entries (every 30 minutes) */}
         {Object.keys(groupedByDate).length === 0 ? (
           <div className="text-center text-muted-foreground py-8 text-sm">
             No entries yet. Start logging activities and symptoms.
@@ -80,6 +133,22 @@ export function CombinedLog({
               <h3 className="text-sm font-semibold text-muted-foreground px-1">
                 {date}
               </h3>
+              {hrBuckets[date] && hrBuckets[date].length > 0 && (
+                <div className="space-y-2 px-1">
+                  {hrBuckets[date].sort((a, b) => new Date(a.timeLabel).getTime() - new Date(b.timeLabel).getTime()).map(h => (
+                    <div key={h.timeLabel} className="flex items-center justify-between bg-muted/40 rounded-md p-2 text-sm">
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(h.timeLabel).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="text-xs">Avg: <span className="font-medium">{h.avg}</span></div>
+                        <div className="text-xs">High: <span className="font-medium text-destructive">{h.high}</span></div>
+                        <div className="text-xs">Low: <span className="font-medium text-success">{h.low}</span></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {entries.map((entry) =>
                 entry.type === 'activity' ? (
                   <ActivityItem
