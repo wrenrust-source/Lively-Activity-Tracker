@@ -154,6 +154,9 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
           console.log('Error closing audio context:', e);
         }
       }
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -239,6 +242,13 @@ export function AudioRecorder({ onTranscriptionComplete }: AudioRecorderProps) {
       mediaRecorder.start(100);
       
       // Start speech recognition
+      isRecordingRef.current = true;
+      setIsRecording(true);
+      setFinalTranscript('');
+      setInterimTranscript('');
+      setShowEditButton(false);
+      setIsEditing(false);
+      
       if (recognitionRef.current) {
         try {
           recognitionRef.current.start();
