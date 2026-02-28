@@ -1,7 +1,16 @@
-import { Clock, Heart, Trash2 } from 'lucide-react';
+import { Clock, Heart, Trash2, Edit2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 
 export interface LogEntry {
   id: string;
@@ -14,9 +23,30 @@ export interface LogEntry {
 interface ActivityLogProps {
   entries: LogEntry[];
   onDeleteEntry: (id: string) => void;
+  onEditEntry: (id: string, newText: string) => void;
 }
 
-export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
+export function ActivityLog({ entries, onDeleteEntry, onEditEntry }: ActivityLogProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+
+  const handleEditClick = (entry: LogEntry) => {
+    setEditingId(entry.id);
+    setEditText(entry.text);
+  };
+
+  const handleSaveEdit = () => {
+    if (editText.trim() && editingId) {
+      onEditEntry(editingId, editText.trim());
+      setEditingId(null);
+      setEditText('');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -83,14 +113,24 @@ export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
                           </div>
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDeleteEntry(entry.id)}
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditClick(entry)}
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onDeleteEntry(entry.id)}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -103,6 +143,36 @@ export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
             </>
           )}
         </div>
+
+        {/* Edit Dialog */}
+        <Dialog open={editingId !== null} onOpenChange={(open) => {
+          if (!open) handleCancelEdit();
+        }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Entry</DialogTitle>
+              <DialogDescription>
+                Update the transcript for this audio entry.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none min-h-[120px]"
+                placeholder="Edit your entry text..."
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={handleCancelEdit}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveEdit}>
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
