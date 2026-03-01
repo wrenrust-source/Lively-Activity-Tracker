@@ -152,13 +152,12 @@ export default function App() {
       {/* Mobile-width centered container */}
       <div className="mx-auto w-full max-w-[420px] min-h-screen">
         {/* Mobile Header */}
-        <div className="bg-primary text-primary-foreground px-6 py-4 pb-6 rounded-b-3xl shadow-lg">
-          
-          <div className="flex items-center justify-between">
+        <div className="bg-primary text-primary-foreground px-4 py-2 pb-3 rounded-b-3xl shadow-lg">
+          <div className="flex items-center justify-center py-1">
             <img
-            src={livelyLogo}
-            alt="Lively logo"
-            className="h-10 w-auto"
+              src={livelyLogo}
+              alt="Lively logo"
+              className="h-30 md:h-30 w-auto mx-auto object-contain"
             />
           </div>
         </div>
