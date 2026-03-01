@@ -3,12 +3,13 @@ import { Heart } from 'lucide-react';
 
 interface CpxConnectorProps {
   onHeartRateUpdate: (bpm: number) => void;
+  onSaveHrSummary?: () => void;
 }
 
 const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const NUS_TX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // device -> central (notify)
 
-export function CpxConnector({ onHeartRateUpdate }: CpxConnectorProps) {
+export function CpxConnector({ onHeartRateUpdate, onSaveHrSummary }: CpxConnectorProps) {
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
   const [connected, setConnected] = useState(false);
@@ -184,7 +185,21 @@ export function CpxConnector({ onHeartRateUpdate }: CpxConnectorProps) {
                 <div className="text-3xl font-bold leading-tight">{bpm && bpm > 0 ? bpm : '-'}</div>
               </div>
             </div>
-            <div className="text-xs text-muted-foreground">BPM</div>
+
+            <div className="flex flex-col items-end gap-2">
+              <div className="text-xs text-muted-foreground">BPM</div>
+              <button
+                className="text-sm px-3 py-1 rounded bg-white/70 hover:bg-white"
+                onClick={() => {
+                  // call parent to save an HR summary (last 10 minutes)
+                  onSaveHrSummary?.();
+                }}
+                aria-label="Save heart rate summary"
+              >
+                Save heart rate
+              </button>
+            </div>
+
           </div>
         </div>
       </div>

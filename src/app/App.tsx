@@ -115,6 +115,34 @@ export default function App() {
     }
   };
 
+  // Save HR summary over last 10 minutes into combined entries
+  const handleSaveHrSummary = () => {
+    const now = new Date();
+    const tenMinAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    const recent = hrSamples.filter(s => new Date(s.timestamp) >= tenMinAgo);
+    if (recent.length === 0) {
+      // no samples to summarize
+      alert('No heart rate samples in the last 10 minutes to save.');
+      return;
+    }
+    const values = recent.map(s => s.bpm);
+    const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+    const high = Math.max(...values);
+    const low = Math.min(...values);
+
+    const entry: LogEntry = {
+      // minimal guaranteed fields – adapt if your LogEntry requires others
+      id: (crypto as any).randomUUID ? (crypto as any).randomUUID() : `${Date.now()}`,
+      timestamp: now.toISOString(),
+      type: 'hr_summary',
+      title: 'Heart rate summary',
+      text: `Avg ${avg} BPM · High ${high} BPM · Low ${low} BPM`,
+      metadata: { avg, high, low },
+    } as unknown as LogEntry;
+
+    setEntries(prev => [entry, ...prev]);
+  };
+
   return (
     <div className="flex-1 overflow-y-auto pb-32">
       {/* Mobile-width centered container */}
@@ -140,7 +168,7 @@ export default function App() {
 
               {/* Smart Watch Card */}
               <div className="p-4">
-                <CpxConnector onHeartRateUpdate={handleHeartRateUpdate} />
+                <CpxConnector onHeartRateUpdate={handleHeartRateUpdate} onSaveHrSummary={handleSaveHrSummary} />
               </div>
 
               {/* Tabs for different logs */}
