@@ -166,7 +166,7 @@ export function CpxConnector({ onHeartRateUpdate, onSaveHrSummary }: CpxConnecto
   return (
     <div className="rounded-lg border p-4 bg-white">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-lg font-semibold">Circuit Playground</h3>
+        <h3 className="text-lg font-semibold">Your Heart Rate</h3>
         <div className="text-sm text-muted-foreground">
           {connected ? 'Connected' : 'Disconnected'}
         </div>

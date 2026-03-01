@@ -249,7 +249,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto pb-32">
+    <div className="flex-1 overflow-y-auto pb-20">
       {/* Mobile-width centered container */}
       <div className="mx-auto w-full max-w-[420px] min-h-screen">
         {/* Mobile Header */}
@@ -421,6 +421,12 @@ export default function App() {
         </div>
 
         <Toaster />
+        {/* Footer matching header color */}
+        <footer className=" bg-primary text-primary-foreground px-6 py-4 rounded-t-3xl shadow-lg">
+          <div className="max-w-[420px] mx-auto text-center text-sm">
+            © {new Date().getFullYear()} Activity Tracker
+          </div>
+        </footer>
       </div>
       {/* end mobile-width container */}
     </div>
