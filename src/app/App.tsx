@@ -9,6 +9,7 @@ import { HealthInsights } from './components/health-insights';
 import { Toaster } from './components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { HeartPulse } from 'lucide-react';
+import { Button } from './components/ui/button';
 import { HeartRateTrends } from './components/heart-rate-trends';
 
 export default function App() {
@@ -153,9 +154,30 @@ export default function App() {
             <HeartPulse className="w-7 h-7" />
             <h1 className="text-xl font-bold">Health Tracker</h1>
           </div>
-          <p className="text-sm opacity-90">
-            Find correlations betwen daily activities and symptoms
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm opacity-90">
+              Find correlations betwen daily activities and symptoms
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (!confirm('Clear all saved logs (healthLog, symptomLog, hrSamples)? This cannot be undone.')) return;
+                try {
+                  localStorage.removeItem('healthLog');
+                  localStorage.removeItem('symptomLog');
+                  localStorage.removeItem('hrSamples');
+                } catch (e) {
+                  console.error('Error clearing localStorage', e);
+                }
+                setEntries([]);
+                setSymptoms([]);
+                setHrSamples([]);
+              }}
+            >
+              Clear saved data
+            </Button>
+          </div>
         </div>
 
         {/* Scrollable Content */}
