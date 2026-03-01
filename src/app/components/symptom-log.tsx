@@ -14,11 +14,19 @@ export interface SymptomEntry {
 interface SymptomLogProps {
   symptoms: SymptomEntry[];
   onDeleteSymptom: (id: string) => void;
+  filterDate?: Date | null;
 }
 
-export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
+export function SymptomLog({ symptoms, onDeleteSymptom, filterDate }: SymptomLogProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const shouldUseCarousel = symptoms.length > 3;
+  function sameDay(a: Date, b?: Date | null) {
+    if (!b) return true;
+    const da = new Date(a);
+    return da.getFullYear() === b.getFullYear() && da.getMonth() === b.getMonth() && da.getDate() === b.getDate();
+  }
+
+  const symptomsToShow = filterDate ? symptoms.filter(s => sameDay(s.timestamp, filterDate)) : symptoms;
+  const shouldUseCarousel = symptomsToShow.length > 3;
 
   // Restore scroll position with backwards-compatibility and clamping
   useEffect(() => {
@@ -107,7 +115,7 @@ export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
         <CardTitle className="text-lg">Symptom Log</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 min-h-0 overflow-hidden">
-        {symptoms.length === 0 ? (
+        {symptomsToShow.length === 0 ? (
           <div className="text-center text-muted-foreground py-8 text-sm">
             No symptoms logged yet.
           </div>
@@ -117,7 +125,7 @@ export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
             onScroll={handleScroll}
             className={shouldUseCarousel ? "h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}
           >
-            {symptoms.map((symptom) => (
+            {symptomsToShow.map((symptom) => (
               <div
                 key={symptom.id}
                 className="border rounded-xl p-3 space-y-2 active:bg-accent transition-colors"

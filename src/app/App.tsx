@@ -18,6 +18,7 @@ const livelyLogo = '/assets/Lively.png';
 export default function App() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [symptoms, setSymptoms] = useState<SymptomEntry[]>([]);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [currentHeartRate, setCurrentHeartRate] = useState<number>(0);
 
   // store recent HR samples (newest first). persisted as ISO timestamps.
@@ -244,6 +245,39 @@ export default function App() {
                 <CpxConnector onHeartRateUpdate={handleHeartRateUpdate} onSaveHrSummary={handleSaveHrSummary} />
               </div>
 
+              {/* Date navigator for browsing logs by day */}
+              <div className="flex items-center justify-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedDate(prev => prev ? new Date(prev.getTime() - 24 * 60 * 60 * 1000) : new Date())}
+                >
+                  ◀
+                </Button>
+                <input
+                  type="date"
+                  className="text-center text-sm px-3 py-1 rounded border"
+                  value={selectedDate ? selectedDate.toISOString().slice(0,10) : ''}
+                  onChange={(e: any) => {
+                    const v = e.target.value;
+                    if (!v) {
+                      setSelectedDate(null);
+                    } else {
+                      // create Date at local midnight
+                      const d = new Date(v + 'T00:00:00');
+                      setSelectedDate(d);
+                    }
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedDate(prev => prev ? new Date(prev.getTime() + 24 * 60 * 60 * 1000) : new Date())}
+                >
+                  ▶
+                </Button>
+              </div>
+
               {/* Tabs for different logs */}
               <Tabs defaultValue="combined" className="w-full">
                 <TabsList className="grid w-full grid-cols-4">
@@ -260,16 +294,17 @@ export default function App() {
                     onDeleteActivity={handleDeleteEntry}
                     onDeleteSymptom={handleDeleteSymptom}
                     hrSamples={hrSamples}
+                    filterDate={selectedDate}
                   />
                 </TabsContent>
 
                 <TabsContent value="activities">
-                  <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} />
+                    <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} filterDate={selectedDate} />
                 </TabsContent>
 
                 <TabsContent value="symptoms" className="mt-4 space-y-4">
                   <SymptomTracker onSymptomAdd={handleSymptomAdd} />
-                  <SymptomLog symptoms={symptoms} onDeleteSymptom={handleDeleteSymptom} />
+                  <SymptomLog symptoms={symptoms} onDeleteSymptom={handleDeleteSymptom} filterDate={selectedDate} />
                 </TabsContent>
 
                 <TabsContent value="hrtrends">
