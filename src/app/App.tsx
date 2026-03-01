@@ -92,6 +92,12 @@ export default function App() {
     setEntries(prev => prev.filter(entry => entry.id !== id));
   };
 
+  const handleEditEntry = (id: string, newText: string) => {
+    setEntries(prev => prev.map(entry =>
+      entry.id === id ? { ...entry, text: newText } : entry
+    ));
+  };
+
   const handleSymptomAdd = (symptom: string, severity: number, timestamp: Date) => {
     const newSymptom: SymptomEntry = {
       id: crypto.randomUUID(),
@@ -116,18 +122,12 @@ export default function App() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto pb-32">
-      {/* Mobile-width centered container */}
-      <div className="mx-auto w-full max-w-[420px] min-h-screen">
-        {/* Mobile Header */}
-        <div className="bg-primary text-primary-foreground px-6 py-4 pb-6 rounded-b-3xl shadow-lg">
-          <div className="flex items-center gap-3 mb-2">
-            <HeartPulse className="w-7 h-7" />
-            <h1 className="text-xl font-bold">Health Tracker</h1>
-          </div>
-          <p className="text-sm opacity-90">
-            Find correlations betwen daily activities and symptoms
-          </p>
+    <div className="min-h-screen bg-background flex flex-col max-w-[430px] mx-auto">
+      {/* Mobile Header */}
+      <div className="bg-primary text-primary-foreground px-6 py-4 pb-6 rounded-b-3xl shadow-lg">
+        <div className="flex items-center gap-3 mb-2">
+          <HeartPulse className="w-7 h-7" />
+          <h1 className="text-xl font-bold">Lively</h1>
         </div>
 
         {/* Scrollable Content */}

@@ -1,16 +1,25 @@
-import { Clock, Heart, AlertCircle, MessageSquare, Trash2 } from 'lucide-react';
+import { Clock, Heart, AlertCircle, MessageSquare, Trash2, Edit2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { LogEntry } from './activity-log';
 import { SymptomEntry } from './symptom-log';
+import { useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 
 interface CombinedLogProps {
   activities: LogEntry[];
   symptoms: SymptomEntry[];
   onDeleteActivity: (id: string) => void;
   onDeleteSymptom: (id: string) => void;
-  hrSamples?: { timestamp: string; bpm: number }[];
+  onEditActivity: (id: string, newText: string) => void;
 }
 
 type CombinedEntry = 
@@ -22,8 +31,28 @@ export function CombinedLog({
   symptoms,
   onDeleteActivity,
   onDeleteSymptom,
-  hrSamples = [],
+  onEditActivity,
 }: CombinedLogProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+
+  const handleEditClick = (activity: LogEntry) => {
+    setEditingId(activity.id);
+    setEditText(activity.text);
+  };
+
+  const handleSaveEdit = () => {
+    if (editText.trim() && editingId) {
+      onEditActivity(editingId, editText.trim());
+      setEditingId(null);
+      setEditText('');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -155,6 +184,7 @@ export function CombinedLog({
                     key={entry.data.id}
                     activity={entry.data as LogEntry}
                     onDelete={onDeleteActivity}
+                    onEditClick={handleEditClick}
                     formatTime={formatTime}
                   />
                 ) : (
@@ -171,6 +201,36 @@ export function CombinedLog({
           ))
         )}
       </CardContent>
+
+      {/* Edit Dialog */}
+      <Dialog open={editingId !== null} onOpenChange={(open) => {
+        if (!open) handleCancelEdit();
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Entry</DialogTitle>
+            <DialogDescription>
+              Update the transcript for this audio entry.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none min-h-[120px]"
+              placeholder="Edit your entry text..."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelEdit}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -178,10 +238,12 @@ export function CombinedLog({
 function ActivityItem({
   activity,
   onDelete,
+  onEditClick,
   formatTime,
 }: {
   activity: LogEntry;
   onDelete: (id: string) => void;
+  onEditClick: (activity: LogEntry) => void;
   formatTime: (date: Date) => string;
 }) {
   return (
@@ -203,14 +265,24 @@ function ActivityItem({
             </div>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onDelete(activity.id)}
-          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-        >
-          <Trash2 className="w-4 h-4" />
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onEditClick(activity)}
+            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0"
+          >
+            <Edit2 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(activity.id)}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );
