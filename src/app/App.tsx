@@ -242,6 +242,60 @@ export default function App() {
     return rows.join('\n');
   }
 
+  // create a single table-style CSV containing HR samples, activity entries and symptoms
+  function generateTableCsv(entries: LogEntry[], symptoms: SymptomEntry[], hrSamples: { timestamp: string; bpm: number }[]) {
+    const header = ['timestamp','type','text','title','heartRate','severity','details'];
+    const rows: string[][] = [header];
+
+    // HR samples (type = hr)
+    for (const s of hrSamples) {
+      rows.push([s.timestamp, 'hr', '', '', String(s.bpm), '', '']);
+    }
+
+    // Activity entries (type = entry)
+    for (const e of entries) {
+      const ts = (e.timestamp instanceof Date) ? e.timestamp.toISOString() : String(e.timestamp);
+      const meta = (e as any).metadata;
+      rows.push([
+        ts,
+        'entry',
+        (e.text || '').replace(/"/g, '""'),
+        ((e as any).title || '').replace(/"/g, '""'),
+        e.heartRate != null ? String(e.heartRate) : '',
+        '',
+        meta ? JSON.stringify(meta).replace(/"/g, '""') : ''
+      ]);
+    }
+
+    // Symptoms (type = symptom)
+    for (const s of symptoms) {
+      const ts = (s.timestamp instanceof Date) ? s.timestamp.toISOString() : String(s.timestamp);
+      rows.push([
+        ts,
+        'symptom',
+        s.symptom || '',
+        '',
+        '',
+        String(s.severity ?? ''),
+        ''
+      ]);
+    }
+
+    // Quote every field and join into CSV text
+    return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  }
+
+  function downloadFile(filename: string, blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   const handleDeleteEntry = (id: string) => {
     setEntries(prev => prev.filter(entry => entry.id !== id));
   };
@@ -297,34 +351,17 @@ export default function App() {
     setEntries(prev => [entry, ...prev]);
   };
 
+  // Replaced XML export with CSV table export
   const handleExportXml = () => {
     try {
-      // generate improved XML and CSV
-      const xml = generateLogsXml(entries, symptoms, hrSamples);
-      const csv = generateTrendCsv(entries, hrSamples);
-       const blob = new Blob([xml], { type: 'application/xml' });
-       const url = URL.createObjectURL(blob);
-       const a = document.createElement('a');
-       a.href = url;
-       a.download = `health-logs-${new Date().toISOString()}.xml`;
-       document.body.appendChild(a);
-       a.click();
-       a.remove();
-       URL.revokeObjectURL(url);
-      // also export CSV for easy trend viewing in spreadsheets
-      const csvBlob = new Blob([csv], { type: 'text/csv' });
-      const csvUrl = URL.createObjectURL(csvBlob);
-      const b = document.createElement('a');
-      b.href = csvUrl;
-      b.download = `health-trends-${new Date().toISOString()}.csv`;
-      document.body.appendChild(b);
-      // small timeout so downloads don't fight each other
-      setTimeout(() => { b.click(); b.remove(); URL.revokeObjectURL(csvUrl); }, 200);
-     } catch (err) {
-       console.error('Export failed', err);
-       alert('Failed to export XML.');
-     }
-   };
+      const csv = generateTableCsv(entries, symptoms, hrSamples);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      downloadFile(`health-table-${new Date().toISOString()}.csv`, blob);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Failed to export CSV.');
+    }
+  };
 
   const handleClearData = () => {
     if (!confirm('Clear all saved entries, symptoms, and heart rate samples? This cannot be undone.')) return;
@@ -371,7 +408,7 @@ export default function App() {
                 <span className="text-lg leading-none">⋯</span>
               </button>
 
-              {menuOpen && menuPos && createPortal(
+              {menuOpen && menuPos ? (createPortal(
               
                   <div
                     ref={menuRef}
@@ -389,7 +426,7 @@ export default function App() {
                       className="w-full text-left px-4 py-2 hover:bg-slate-100 text-black text-sm"
                       role="menuitem"
                     >
-                      Export XML
+                      Export CSV
                     </button>
                     <button
                       onClick={(ev) => {
@@ -405,15 +442,15 @@ export default function App() {
                     </button>
                   </div>,
          document.body
-              )}
+              ) as any) : null}
             </div>
           </div>
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto pb-32">
+        <div className="flex-1 overflow-y-auto pb-20">
           {/* Mobile-width centered container */}
-          <div className="mx-auto w-full max-w-[420px] min-h-screen">
+          <div className="mx-auto w-full max-w-[420px]">
             <div className="px-4 py-2 space-y-2">
               {/* Health Insights */}
               <HealthInsights entries={entries} symptoms={symptoms} />
