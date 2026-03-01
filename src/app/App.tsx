@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { AudioRecorder } from './components/audio-recorder';
 import { CpxConnector } from './components/cpx-connector';
 import { ActivityLog, LogEntry } from './components/activity-log';
@@ -20,7 +21,31 @@ export default function App() {
   const [symptoms, setSymptoms] = useState<SymptomEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [currentHeartRate, setCurrentHeartRate] = useState<number>(0);
-  
+  // dropdown menu state (portal-based)
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      const path = (e as any).composedPath ? (e as any).composedPath() : (e as any).path || [];
+      const target = e.target as Node | null;
+      const clickedBtn = menuBtnRef.current && (menuBtnRef.current.contains(target as Node) || path.indexOf(menuBtnRef.current) !== -1);
+      const clickedMenu = menuRef.current && (menuRef.current.contains(target as Node) || path.indexOf(menuRef.current) !== -1);
+      if (clickedBtn || clickedMenu) return;
+      setMenuOpen(false);
+      setMenuPos(null);
+    }
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { setMenuOpen(false); setMenuPos(null); } };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   // store recent HR samples (newest first). persisted as ISO timestamps.
   const [hrSamples, setHrSamples] = useState<{ timestamp: string; bpm: number }[]>(() => {
@@ -103,20 +128,69 @@ export default function App() {
       .replace(/'/g, '&apos;');
   }
 
-  function generateLogsXml(entries: LogEntry[], symptoms: SymptomEntry[]) {
+  // Exports XML with a human-friendly Summary section + full entries/symptoms lists.
+  // Also computes simple HR statistics and hourly bins (last 24 hours) for trend visualization.
+  function generateLogsXml(entries: LogEntry[], symptoms: SymptomEntry[], hrSamples: { timestamp: string; bpm: number }[]) {
     const exportedAt = new Date().toISOString();
-    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += `<HealthLogs exportedAt="${exportedAt}">\n`;
+    // simple HR stats
+    const hrValues = hrSamples.map(s => s.bpm);
+    const hrCount = hrValues.length;
+    const hrAvg = hrCount ? Math.round(hrValues.reduce((a, b) => a + b, 0) / hrCount) : 0;
+    const hrMin = hrCount ? Math.min(...hrValues) : 0;
+    const hrMax = hrCount ? Math.max(...hrValues) : 0;
 
+    // hourly bins for last 24 hours (timezone local)
+    const now = new Date();
+    const hours: { hourStartISO: string; samples: number; avgBpm: number }[] = [];
+    for (let i = 0; i < 24; i++) {
+      const end = new Date(now.getTime() - i * 60 * 60 * 1000);
+      const start = new Date(end.getTime() - 60 * 60 * 1000);
+      const bucket = hrSamples.filter(s => {
+        const t = new Date(s.timestamp);
+        return t >= start && t < end;
+      });
+      const samples = bucket.length;
+      const avgBpm = samples ? Math.round(bucket.reduce((a, b) => a + b.bpm, 0) / samples) : 0;
+      hours.push({ hourStartISO: start.toISOString(), samples, avgBpm });
+    }
+
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += `<HealthLogs exportedAt="${exportedAt}" generatedBy="Healthtrackingaudiologger">\n`;
+
+    // Summary section for quick viewing / trend ingestion
+    xml += '  <Summary>\n';
+    xml += `    <TotalEntries>${entries.length}</TotalEntries>\n`;
+    xml += `    <TotalSymptoms>${symptoms.length}</TotalSymptoms>\n`;
+    xml += '    <HeartRate>\n';
+    xml += `      <Samples>${hrCount}</Samples>\n`;
+    xml += `      <Avg>${hrAvg}</Avg>\n`;
+    xml += `      <Min>${hrMin}</Min>\n`;
+    xml += `      <Max>${hrMax}</Max>\n`;
+    xml += '    </HeartRate>\n';
+    xml += '    <HourlyBins>\n';
+    // order ascending (oldest first) for trend charts
+    for (let i = hours.length - 1; i >= 0; i--) {
+      const h = hours[i];
+      xml += `      <Hour start="${h.hourStartISO}" samples="${h.samples}" avgBpm="${h.avgBpm}" />\n`;
+    }
+    xml += '    </HourlyBins>\n';
+    xml += '  </Summary>\n';
+
+    // Detailed lists (still available for auditing)
     xml += '  <Entries>\n';
     for (const e of entries) {
       const id = escapeXml(String(e.id));
       const ts = escapeXml((e.timestamp instanceof Date) ? e.timestamp.toISOString() : String(e.timestamp));
       const text = escapeXml(e.text || '');
       const audioId = e.audioId ? escapeXml(String(e.audioId)) : '';
-      xml += `    <Entry id="${id}" timestamp="${ts}">\n`;
+      const hr = e.heartRate ? escapeXml(String(e.heartRate)) : '';
+      xml += `    <Entry id="${id}" timestamp="${ts}" heartRate="${hr}">\n`;
+      const title = (e as any).title;
+      if (title) xml += `      <Title>${escapeXml(title)}</Title>\n`;
       xml += `      <Text>${text}</Text>\n`;
       if (audioId) xml += `      <AudioId>${audioId}</AudioId>\n`;
+      const meta = (e as any).metadata;
+      if (meta) xml += `      <Metadata>${escapeXml(JSON.stringify(meta))}</Metadata>\n`;
       xml += '    </Entry>\n';
     }
     xml += '  </Entries>\n';
@@ -133,8 +207,39 @@ export default function App() {
     }
     xml += '  </Symptoms>\n';
 
+    // Also include raw HR samples for precise trending
+    xml += '  <HRSamples>\n';
+    for (const s of hrSamples) {
+      const ts = escapeXml(s.timestamp);
+      xml += `    <Sample timestamp="${ts}" bpm="${s.bpm}" />\n`;
+    }
+    xml += '  </HRSamples>\n';
+
     xml += '</HealthLogs>\n';
     return xml;
+  }
+
+  // CSV helpful for spreadsheet trend analysis: combine HR samples and entries into flat rows.
+  function generateTrendCsv(entries: LogEntry[], hrSamples: { timestamp: string; bpm: number }[]) {
+    const rows: string[] = [];
+    // header
+    rows.push(['timestamp','kind','value','details'].join(','));
+
+    // HR samples (kind=hr)
+    for (const s of hrSamples) {
+      rows.push([`"${s.timestamp}"`,'hr',String(s.bpm),''].join(','));
+    }
+
+    // Activity entries (kind=entry)
+    for (const e of entries) {
+      const ts = (e.timestamp instanceof Date) ? e.timestamp.toISOString() : String(e.timestamp);
+      const text = (e.text || '').replace(/"/g, '""');
+      const title = (e as any).title || '';
+      const details = title ? `title:${title.replace(/"/g,'""')}` : '';
+      rows.push([`"${ts}"`,'entry',`"${text}"`, `"${details}"`].join(','));
+    }
+
+    return rows.join('\n');
   }
 
   const handleDeleteEntry = (id: string) => {
@@ -192,48 +297,34 @@ export default function App() {
     setEntries(prev => [entry, ...prev]);
   };
 
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const headerMenuBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
-
-  useEffect(() => {
-    function onDocMouse(e: MouseEvent) {
-      if (headerMenuBtnRef.current && !headerMenuBtnRef.current.contains(e.target as Node)) {
-        setHeaderMenuOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setHeaderMenuOpen(false);
-    }
-
-    if (headerMenuOpen) {
-      document.addEventListener('mousedown', onDocMouse);
-      document.addEventListener('keydown', onKey);
-    }
-    return () => {
-      document.removeEventListener('mousedown', onDocMouse);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [headerMenuOpen]);
-
   const handleExportXml = () => {
     try {
-      const xml = generateLogsXml(entries, symptoms);
-      const blob = new Blob([xml], { type: 'application/xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `health-logs-${new Date().toISOString()}.xml`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setHeaderMenuOpen(false);
-    } catch (err) {
-      console.error('Export failed', err);
-      alert('Failed to export XML.');
-    }
-  };
+      // generate improved XML and CSV
+      const xml = generateLogsXml(entries, symptoms, hrSamples);
+      const csv = generateTrendCsv(entries, hrSamples);
+       const blob = new Blob([xml], { type: 'application/xml' });
+       const url = URL.createObjectURL(blob);
+       const a = document.createElement('a');
+       a.href = url;
+       a.download = `health-logs-${new Date().toISOString()}.xml`;
+       document.body.appendChild(a);
+       a.click();
+       a.remove();
+       URL.revokeObjectURL(url);
+      // also export CSV for easy trend viewing in spreadsheets
+      const csvBlob = new Blob([csv], { type: 'text/csv' });
+      const csvUrl = URL.createObjectURL(csvBlob);
+      const b = document.createElement('a');
+      b.href = csvUrl;
+      b.download = `health-trends-${new Date().toISOString()}.csv`;
+      document.body.appendChild(b);
+      // small timeout so downloads don't fight each other
+      setTimeout(() => { b.click(); b.remove(); URL.revokeObjectURL(csvUrl); }, 200);
+     } catch (err) {
+       console.error('Export failed', err);
+       alert('Failed to export XML.');
+     }
+   };
 
   const handleClearData = () => {
     if (!confirm('Clear all saved entries, symptoms, and heart rate samples? This cannot be undone.')) return;
@@ -245,7 +336,6 @@ export default function App() {
       localStorage.removeItem('entries');
       localStorage.removeItem('symptoms');
     } catch {}
-    setHeaderMenuOpen(false);
   };
 
   return (
@@ -266,61 +356,55 @@ export default function App() {
             {/* 3-dot menu (top-right of header) */}
             <div className="absolute right-3 top-3">
               <button
-                ref={headerMenuBtnRef}
+                ref={menuBtnRef}
                 aria-label="More"
                 className="p-2 rounded-full hover:bg-white/20"
-                onClick={() => {
-                  if (headerMenuOpen) {
-                    setHeaderMenuOpen(false);
-                    setMenuPos(null);
-                    return;
-                  }
-                  const rect = headerMenuBtnRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    const DROPDOWN_WIDTH = 176;
-                    const left = Math.min(rect.left, window.innerWidth - DROPDOWN_WIDTH - 8);
-                    const top = rect.bottom + 6;
-                    setMenuPos({ left, top });
-                  } else {
-                    setMenuPos({ left: window.innerWidth - 184, top: 64 });
-                  }
-                  setHeaderMenuOpen(true);
+                onClick={(e) => {
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const DROPDOWN_WIDTH = 176;
+                  const left = Math.min(rect.left, window.innerWidth - DROPDOWN_WIDTH - 8);
+                  const top = rect.bottom + 6;
+                  setMenuPos({ left, top });
+                  setMenuOpen(v => !v);
                 }}
               >
                 <span className="text-lg leading-none">⋯</span>
               </button>
 
-              {headerMenuOpen && menuPos && (
-                <>
-                  {/* overlay below the dropdown to close when clicking outside */}
+              {menuOpen && menuPos && createPortal(
+              
                   <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => {
-                      setHeaderMenuOpen(false);
-                      setMenuPos(null);
-                    }}
-                    aria-hidden
-                  />
-
-                  {/* dropdown positioned right under the button using computed coords */}
-                  <div
-                    style={{ left: menuPos.left, top: menuPos.top, width: 176 }}
-                    className="fixed z-50 bg-white rounded-md shadow-lg ring-1 ring-black/5 overflow-hidden"
+                    ref={menuRef}
+                    className="fixed z-50 bg-white rounded-md shadow-lg ring-1 ring-black/5 overflow-hidden border border-slate-200"
+                    style={{ left: menuPos.left, top: menuPos.top, width: 176, pointerEvents: 'auto' }}
+                    role="menu"
                   >
                     <button
-                      onClick={() => { handleExportXml(); setHeaderMenuOpen(false); setMenuPos(null); }}
-                      className="w-full text-left px-4 py-2 hover:bg-slate-50 text-black"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        handleExportXml();
+                        setMenuOpen(false);
+                        setMenuPos(null);
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-100 text-black text-sm"
+                      role="menuitem"
                     >
                       Export XML
                     </button>
                     <button
-                      onClick={() => { handleClearData(); setHeaderMenuOpen(false); setMenuPos(null); }}
-                      className="w-full text-left px-4 py-2 hover:bg-slate-50 text-black"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        handleClearData();
+                        setMenuOpen(false);
+                        setMenuPos(null);
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-100 text-red-600 text-sm"
+                      role="menuitem"
                     >
                       Clear saved data
                     </button>
-                  </div>
-                </>
+                  </div>,
+         document.body
               )}
             </div>
           </div>
