@@ -11,6 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { HeartPulse } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { HeartRateTrends } from './components/heart-rate-trends';
+// Use the public/static assets path for the logo to avoid needing image module type declarations.
+// Place Lively.png in the public/assets/ directory so it's served at /assets/Lively.png.
+const livelyLogo = '/assets/Lively.png';
 
 export default function App() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -193,33 +196,13 @@ export default function App() {
       <div className="mx-auto w-full max-w-[420px] min-h-screen">
         {/* Mobile Header */}
         <div className="bg-primary text-primary-foreground px-6 py-4 pb-6 rounded-b-3xl shadow-lg">
-          <div className="flex items-center gap-3 mb-2">
-            <HeartPulse className="w-7 h-7" />
-            <h1 className="text-xl font-bold">Health Tracker</h1>
-          </div>
+          
           <div className="flex items-center justify-between">
-            <p className="text-sm opacity-90">
-              Find correlations betwen daily activities and symptoms
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                if (!confirm('Clear all saved logs (healthLog, symptomLog, hrSamples)? This cannot be undone.')) return;
-                try {
-                  localStorage.removeItem('healthLog');
-                  localStorage.removeItem('symptomLog');
-                  localStorage.removeItem('hrSamples');
-                } catch (e) {
-                  console.error('Error clearing localStorage', e);
-                }
-                setEntries([]);
-                setSymptoms([]);
-                setHrSamples([]);
-              }}
-            >
-              Clear saved data
-            </Button>
+            <img
+            src={livelyLogo}
+            alt="Lively logo"
+            className="h-10 w-auto"
+            />
           </div>
         </div>
 
