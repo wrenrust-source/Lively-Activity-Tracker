@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Clock, Heart, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -17,6 +18,34 @@ interface ActivityLogProps {
 }
 
 export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const shouldUseCarousel = entries.length > 3;
+
+  // Restore scroll position
+  useEffect(() => {
+    if (!shouldUseCarousel || !scrollContainerRef.current) return;
+    
+    const saved = localStorage.getItem('activityLogScrollPos');
+    if (saved) {
+      const scrollValue = parseInt(saved, 10);
+      if (!isNaN(scrollValue)) {
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollValue;
+          }
+        });
+      }
+    }
+  }, [shouldUseCarousel]);
+
+  // Save scroll position
+  const handleScroll = () => {
+    if (shouldUseCarousel && scrollContainerRef.current) {
+      localStorage.setItem('activityLogScrollPos', String(scrollContainerRef.current.scrollTop));
+    }
+  };
+
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -40,20 +69,22 @@ export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
     return { label: 'High', variant: 'destructive' as const };
   };
 
-  const shouldUseCarousel = entries.length > 3;
-
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Activity Log</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 min-h-0 overflow-hidden">
         {entries.length === 0 ? (
           <div className="text-center text-muted-foreground py-8 text-sm">
             No entries yet. Tap the button below to start recording.
           </div>
         ) : (
-          <div className={shouldUseCarousel ? "max-h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}>
+          <div 
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className={shouldUseCarousel ? "h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}
+          >
             {entries.map((entry) => {
               const hrStatus = getHeartRateStatus(entry.heartRate);
               return (

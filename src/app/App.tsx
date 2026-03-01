@@ -136,7 +136,7 @@ export default function App() {
           <div className="mx-auto w-full max-w-[420px] min-h-screen">
             <div className="px-4 py-6 space-y-6">
               {/* Health Insights */}
-              <HealthInsights entries={entries} />
+              <HealthInsights entries={entries} symptoms={symptoms} />
 
               {/* Smart Watch Card */}
               <div className="p-4">

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Clock, AlertCircle, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -16,6 +17,34 @@ interface SymptomLogProps {
 }
 
 export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const shouldUseCarousel = symptoms.length > 3;
+
+  // Restore scroll position
+  useEffect(() => {
+    if (!shouldUseCarousel || !scrollContainerRef.current) return;
+    
+    const saved = localStorage.getItem('symptomLogScrollPos');
+    if (saved) {
+      const scrollValue = parseInt(saved, 10);
+      if (!isNaN(scrollValue)) {
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollValue;
+          }
+        });
+      }
+    }
+  }, [shouldUseCarousel]);
+
+  // Save scroll position
+  const handleScroll = () => {
+    if (shouldUseCarousel && scrollContainerRef.current) {
+      localStorage.setItem('symptomLogScrollPos', String(scrollContainerRef.current.scrollTop));
+    }
+  };
+
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -45,20 +74,22 @@ export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
     return 'Severe';
   };
 
-  const shouldUseCarousel = symptoms.length > 3;
-
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Symptom Log</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 min-h-0 overflow-hidden">
         {symptoms.length === 0 ? (
           <div className="text-center text-muted-foreground py-8 text-sm">
             No symptoms logged yet.
           </div>
         ) : (
-          <div className={shouldUseCarousel ? "max-h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}>
+          <div 
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className={shouldUseCarousel ? "h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}
+          >
             {symptoms.map((symptom) => (
               <div
                 key={symptom.id}

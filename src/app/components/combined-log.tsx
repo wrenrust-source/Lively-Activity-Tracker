@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Clock, Heart, AlertCircle, MessageSquare, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -15,9 +16,8 @@ interface CombinedLogProps {
 
 type CombinedEntry = 
   | { type: 'activity'; data: LogEntry }
-  | { type: 'symptom'; data: SymptomEntry }
-  | { type: 'hr'; data: { timestamp: string; avg: number; high: number; low: number } };
- 
+  | { type: 'symptom'; data: SymptomEntry };
+
 export function CombinedLog({
   activities,
   symptoms,
@@ -25,6 +25,35 @@ export function CombinedLog({
   onDeleteSymptom,
   hrSamples = [],
 }: CombinedLogProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const totalEntries = activities.length + symptoms.length;
+  const shouldUseCarousel = totalEntries > 3;
+
+  // Restore scroll position
+  useEffect(() => {
+    if (!shouldUseCarousel || !scrollContainerRef.current) return;
+    
+    const saved = localStorage.getItem('combinedLogScrollPos');
+    if (saved) {
+      const scrollValue = parseInt(saved, 10);
+      if (!isNaN(scrollValue)) {
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollValue;
+          }
+        });
+      }
+    }
+  }, [shouldUseCarousel]);
+
+  // Save scroll position
+  const handleScroll = () => {
+    if (shouldUseCarousel && scrollContainerRef.current) {
+      localStorage.setItem('combinedLogScrollPos', String(scrollContainerRef.current.scrollTop));
+    }
+  };
+
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -47,194 +76,162 @@ export function CombinedLog({
   };
 
   // Combine and sort all entries by timestamp
-  // create hr buckets (30-minute) and produce hr summary entries
-  const hrBuckets: Record<string, { timestamp: string; avg: number; high: number; low: number }[]> = {};
-  (hrSamples || []).forEach(s => {
-    const dt = new Date(s.timestamp);
-    const mins = dt.getMinutes();
-    const flooredMin = mins < 30 ? 0 : 30;
-    const bucketDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), flooredMin, 0, 0);
-    const bucketKey = bucketDate.toISOString();
-    hrBuckets[bucketKey] = hrBuckets[bucketKey] || [];
-    hrBuckets[bucketKey].push({ timestamp: bucketKey, avg: s.bpm, high: s.bpm, low: s.bpm });
-  });
-
-  // collapse per-bucket samples into avg/high/low
-  const hrSummaryEntries: { timestamp: string; avg: number; high: number; low: number }[] = Object.keys(hrBuckets).map(k => {
-    const arr = hrBuckets[k].map(x => x.avg);
-    const avg = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
-    const high = Math.max(...arr);
-    const low = Math.min(...arr);
-    return { timestamp: k, avg, high, low };
-  });
-
   const combinedEntries: CombinedEntry[] = [
     ...activities.map((a): CombinedEntry => ({ type: 'activity', data: a })),
     ...symptoms.map((s): CombinedEntry => ({ type: 'symptom', data: s })),
-    // insert hr summaries as entries
-    ...hrSummaryEntries.map(h => ({ type: 'hr', data: h })),
   ].sort((a, b) => {
-    const tA = new Date(a.data.timestamp).getTime();
-    const tB = new Date(b.data.timestamp).getTime();
-    // chronological order (oldest first)
-    return tA - tB;
+    const timeA = new Date(a.data.timestamp).getTime();
+    const timeB = new Date(b.data.timestamp).getTime();
+    return timeB - timeA;
   });
- 
-   // Group entries by date
-   const groupedByDate = combinedEntries.reduce((acc, entry) => {
-     const date = formatDate(entry.data.timestamp);
-     if (!acc[date]) acc[date] = [];
-     acc[date].push(entry);
-     return acc;
-   }, {} as Record<string, CombinedEntry[]>);
- 
-   return (
-     <Card className="flex flex-col">
-       <CardHeader className="pb-3">
-         <CardTitle className="text-lg">Combined Timeline</CardTitle>
-       </CardHeader>
-       <CardContent>
-         {/* render combined entries (activities, symptoms, and HR summaries) in chronological order */}
-         {Object.keys(groupedByDate).length === 0 ? (
-           <div className="text-center text-muted-foreground py-8 text-sm">
-             No entries yet. Start logging activities and symptoms.
-           </div>
-         ) : (
-           Object.entries(groupedByDate).map(([date, entries]) => (
-             <div key={date} className="space-y-3">
-               <h3 className="text-sm font-semibold text-muted-foreground px-1">
-                 {date}
-               </h3>
-               {entries.map((entry) => {
-                 if (entry.type === 'activity') {
-                   return (
-                     <ActivityItem
-                       key={(entry.data as LogEntry).id}
-                       activity={entry.data as LogEntry}
-                       onDelete={onDeleteActivity}
-                       formatTime={formatTime}
-                     />
-                   );
-                 }
-                 if (entry.type === 'symptom') {
-                   return (
-                     <SymptomItem
-                       key={(entry.data as SymptomEntry).id}
-                       symptom={entry.data as SymptomEntry}
-                       onDelete={onDeleteSymptom}
-                       formatTime={formatTime}
-                       getSeverityColor={getSeverityColor}
-                     />
-                   );
-                 }
-                 // hr summary
-                 return (
-                   <div key={(entry.data as any).timestamp} className="rounded-md border p-2 bg-muted/30">
-                     <div className="flex items-center justify-between text-sm">
-                       <div className="text-xs text-muted-foreground">
-                         {new Date((entry.data as any).timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                       </div>
-                       <div className="flex gap-4">
-                         <div className="text-xs">Avg: <span className="font-medium">{(entry.data as any).avg}</span></div>
-                         <div className="text-xs">High: <span className="font-medium text-destructive">{(entry.data as any).high}</span></div>
-                         <div className="text-xs">Low: <span className="font-medium text-success">{(entry.data as any).low}</span></div>
-                       </div>
-                     </div>
-                   </div>
-                 );
-               })}
-             </div>
-           ))
-         )}
-       </CardContent>
-     </Card>
-   );
- }
- 
- function ActivityItem({
-   activity,
-   onDelete,
-   formatTime,
- }: {
-   activity: LogEntry;
-   onDelete: (id: string) => void;
-   formatTime: (date: Date) => string;
- }) {
-   return (
-     <div className="border rounded-xl p-3 space-y-2 bg-blue-50/50 border-blue-200">
-       <div className="flex items-start justify-between gap-2">
-         <div className="flex-1 space-y-2">
-           <div className="flex items-center gap-2">
-             <MessageSquare className="w-4 h-4 text-blue-600" />
-             <span className="text-xs font-medium text-blue-600">Audio</span>
-             <span className="text-xs text-muted-foreground">
-               {formatTime(activity.timestamp)}
-             </span>
-           </div>
-           <p className="text-sm leading-relaxed">{activity.text}</p>
-           {activity.heartRate && (
-             <div className="flex items-center gap-2">
-               <Heart className="w-3 h-3 text-red-500" />
-               <span className="text-xs font-medium">{activity.heartRate} BPM</span>
-             </div>
-           )}
-         </div>
-         <Button
-           variant="ghost"
-           size="sm"
-           onClick={() => onDelete(activity.id)}
-           className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-         >
-           <Trash2 className="w-4 h-4" />
-         </Button>
-       </div>
-     </div>
-   );
- }
- 
- function SymptomItem({
-   symptom,
-   onDelete,
-   formatTime,
-   getSeverityColor,
- }: {
-   symptom: SymptomEntry;
-   onDelete: (id: string) => void;
-   formatTime: (date: Date) => string;
-   getSeverityColor: (severity: number) => string;
- }) {
-   return (
-     <div className="border rounded-xl p-3 space-y-2 bg-red-50/50 border-red-200">
-       <div className="flex items-start justify-between gap-2">
-         <div className="flex-1 space-y-2">
-           <div className="flex items-center gap-2">
-             <AlertCircle className="w-4 h-4 text-red-600" />
-             <span className="text-xs font-medium text-red-600">Symptom</span>
-             <span className="text-xs text-muted-foreground">
-               {formatTime(symptom.timestamp)}
-             </span>
-           </div>
-           <p className="text-sm font-medium">{symptom.symptom}</p>
-           <div className="flex items-center gap-1">
-             {[...Array(5)].map((_, i) => (
-               <div
-                 key={i}
-                 className={`w-5 h-2 rounded-full ${
-                   i < symptom.severity ? getSeverityColor(symptom.severity) : 'bg-muted'
-                 }`}
-               />
-             ))}
-           </div>
-         </div>
-         <Button
-           variant="ghost"
-           size="sm"
-           onClick={() => onDelete(symptom.id)}
-           className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-         >
-           <Trash2 className="w-4 h-4" />
-         </Button>
-       </div>
-     </div>
-   );
- }
+
+  // Group entries by date
+  const groupedByDate = combinedEntries.reduce((acc, entry) => {
+    const date = formatDate(entry.data.timestamp);
+    if (!acc[date]) {
+      acc[date] = [];
+    }
+    acc[date].push(entry);
+    return acc;
+  }, {} as Record<string, CombinedEntry[]>);
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg">Combined Timeline</CardTitle>
+      </CardHeader>
+      <CardContent className={shouldUseCarousel ? "flex-1 min-h-0 overflow-hidden" : ""}>
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className={shouldUseCarousel ? "h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}
+        >
+          {Object.keys(groupedByDate).length === 0 ? (
+            <div className="text-center text-muted-foreground py-8 text-sm">
+              No entries yet. Start logging activities and symptoms.
+            </div>
+          ) : (
+            Object.entries(groupedByDate).map(([date, entries]) => (
+              <div key={date} className="space-y-3">
+                <h3 className="text-sm font-semibold text-muted-foreground px-1">
+                  {date}
+                </h3>
+                {entries.map((entry) => {
+                  if (entry.type === 'activity') {
+                    return (
+                      <ActivityItem
+                        key={(entry.data as LogEntry).id}
+                        activity={entry.data as LogEntry}
+                        onDelete={onDeleteActivity}
+                        formatTime={formatTime}
+                      />
+                    );
+                  }
+                  if (entry.type === 'symptom') {
+                    return (
+                      <SymptomItem
+                        key={(entry.data as SymptomEntry).id}
+                        symptom={entry.data as SymptomEntry}
+                        onDelete={onDeleteSymptom}
+                        formatTime={formatTime}
+                        getSeverityColor={getSeverityColor}
+                      />
+                    );
+                  }
+                })}
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActivityItem({
+  activity,
+  onDelete,
+  formatTime,
+}: {
+  activity: LogEntry;
+  onDelete: (id: string) => void;
+  formatTime: (date: Date) => string;
+}) {
+  return (
+    <div className="border rounded-xl p-3 space-y-2 bg-blue-50/50 border-blue-200">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-blue-600" />
+            <span className="text-xs font-medium text-blue-600">Audio</span>
+            <span className="text-xs text-muted-foreground">
+              {formatTime(activity.timestamp)}
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed">{activity.text}</p>
+          {activity.heartRate && (
+            <div className="flex items-center gap-2">
+              <Heart className="w-3 h-3 text-red-500" />
+              <span className="text-xs font-medium">{activity.heartRate} BPM</span>
+            </div>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDelete(activity.id)}
+          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SymptomItem({
+  symptom,
+  onDelete,
+  formatTime,
+  getSeverityColor,
+}: {
+  symptom: SymptomEntry;
+  onDelete: (id: string) => void;
+  formatTime: (date: Date) => string;
+  getSeverityColor: (severity: number) => string;
+}) {
+  return (
+    <div className="border rounded-xl p-3 space-y-2 bg-red-50/50 border-red-200">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600" />
+            <span className="text-xs font-medium text-red-600">Symptom</span>
+            <span className="text-xs text-muted-foreground">
+              {formatTime(symptom.timestamp)}
+            </span>
+          </div>
+          <p className="text-sm font-medium">{symptom.symptom}</p>
+          <div className="flex items-center gap-1">
+            {[...Array(5)].map((_, i) => (
+              <div
+                key={i}
+                className={`w-5 h-2 rounded-full ${
+                  i < symptom.severity ? getSeverityColor(symptom.severity) : 'bg-muted'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDelete(symptom.id)}
+          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
