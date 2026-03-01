@@ -334,32 +334,6 @@ export default function App() {
               {/* Health Insights */}
               <HealthInsights entries={entries} symptoms={symptoms} />
 
-              <div className="flex justify-end">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    try {
-                      const xml = generateLogsXml(entries, symptoms);
-                      const blob = new Blob([xml], { type: 'application/xml' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `health-logs-${new Date().toISOString()}.xml`;
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      URL.revokeObjectURL(url);
-                    } catch (e) {
-                      console.error('Error exporting logs', e);
-                      alert('Failed to export logs. See console for details.');
-                    }
-                  }}
-                >
-                  Export XML
-                </Button>
-              </div>
-
               {/* Smart Watch Card */}
               <div className="p-4">
                 <CpxConnector onHeartRateUpdate={handleHeartRateUpdate} onSaveHrSummary={handleSaveHrSummary} />
