@@ -20,22 +20,49 @@ export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldUseCarousel = symptoms.length > 3;
 
-  // Restore scroll position
+  // Restore scroll position with backwards-compatibility and clamping
   useEffect(() => {
     if (!shouldUseCarousel || !scrollContainerRef.current) return;
-    
-    const saved = localStorage.getItem('symptomLogScrollPos');
-    if (saved) {
-      const scrollValue = parseInt(saved, 10);
-      if (!isNaN(scrollValue)) {
-        // Use requestAnimationFrame to ensure DOM is ready
-        requestAnimationFrame(() => {
-          if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = scrollValue;
-          }
-        });
+
+    const legacyKeys = [
+      'symptomLogScrollPos',
+      'symptomLogScroll',
+      'symptomScrollPos',
+      'symptomScroll',
+      'symptom_scroll_pos',
+      'symptom_scroll'
+    ];
+
+    function parseSaved(val: string | null) {
+      if (!val) return NaN;
+      const cleaned = val.replace(/px$/i, '').trim();
+      const n = parseInt(cleaned, 10);
+      return isNaN(n) ? NaN : n;
+    }
+
+    let found: number | null = null;
+    for (const k of legacyKeys) {
+      try {
+        const v = localStorage.getItem(k);
+        const n = parseSaved(v);
+        if (!isNaN(n)) {
+          found = n;
+          break;
+        }
+      } catch (e) {
+        // ignore and continue
       }
     }
+
+    if (found === null) return;
+
+    requestAnimationFrame(() => {
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      const target = Math.min(Math.max(0, found as number), max);
+      el.scrollTop = target;
+    });
   }, [shouldUseCarousel]);
 
   // Save scroll position
