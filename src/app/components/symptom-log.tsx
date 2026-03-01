@@ -45,73 +45,68 @@ export function SymptomLog({ symptoms, onDeleteSymptom }: SymptomLogProps) {
     return 'Severe';
   };
 
+  const shouldUseCarousel = symptoms.length > 3;
+
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Symptom Log</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
-          {symptoms.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8 text-sm">
-              No symptoms logged yet.
-            </div>
-          ) : (
-            <>
-              {symptoms.slice(0, 5).map((symptom) => (
-                <div
-                  key={symptom.id}
-                  className="border rounded-xl p-3 space-y-2 active:bg-accent transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3" />
-                        <span>{formatDate(symptom.timestamp)}</span>
-                        <span>•</span>
-                        <span>{formatTime(symptom.timestamp)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-muted-foreground" />
-                        <span className="font-medium">{symptom.symptom}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1">
-                          {[...Array(5)].map((_, i) => (
-                            <div
-                              key={i}
-                              className={`w-5 h-2 rounded-full ${
-                                i < symptom.severity
-                                  ? getSeverityColor(symptom.severity)
-                                  : 'bg-muted'
-                              }`}
-                            />
-                          ))}
-                        </div>
-                        <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                          {getSeverityLabel(symptom.severity)}
-                        </Badge>
-                      </div>
+        {symptoms.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8 text-sm">
+            No symptoms logged yet.
+          </div>
+        ) : (
+          <div className={shouldUseCarousel ? "max-h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}>
+            {symptoms.map((symptom) => (
+              <div
+                key={symptom.id}
+                className="border rounded-xl p-3 space-y-2 active:bg-accent transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      <span>{formatDate(symptom.timestamp)}</span>
+                      <span>•</span>
+                      <span>{formatTime(symptom.timestamp)}</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDeleteSymptom(symptom.id)}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium">{symptom.symptom}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        {[...Array(5)].map((_, i) => (
+                          <div
+                            key={i}
+                            className={`w-5 h-2 rounded-full ${
+                              i < symptom.severity
+                                ? getSeverityColor(symptom.severity)
+                                : 'bg-muted'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                        {getSeverityLabel(symptom.severity)}
+                      </Badge>
+                    </div>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDeleteSymptom(symptom.id)}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
-              ))}
-              {symptoms.length > 5 && (
-                <p className="text-xs text-center text-muted-foreground pt-2">
-                  Showing 5 of {symptoms.length} symptoms
-                </p>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
