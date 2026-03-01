@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Heart } from 'lucide-react';
 
 interface CpxConnectorProps {
   onHeartRateUpdate: (bpm: number) => void;
@@ -170,15 +171,21 @@ export function CpxConnector({ onHeartRateUpdate }: CpxConnectorProps) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs text-muted-foreground">Device</div>
-          <div className="font-medium">{deviceName ?? (connected ? 'Unknown' : '—')}</div>
-        </div>
-
-        <div>
-          <div className="text-xs text-muted-foreground text-right">HR</div>
-          <div className="font-medium text-right text-xl">{bpm && bpm > 0 ? bpm : '-'}</div>
+      <div className="flex items-center justify-end gap-4">
+        {/* Large HR card (visual only) */}
+        <div className="w-full max-w-[320px]">
+          <div className="bg-emerald-50 rounded-xl p-4 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="bg-white/60 rounded-lg p-3 flex items-center justify-center">
+                <Heart className="w-7 h-7 text-red-600" />
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">HR</div>
+                <div className="text-3xl font-bold leading-tight">{bpm && bpm > 0 ? bpm : '-'}</div>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground">BPM</div>
+          </div>
         </div>
       </div>
 
@@ -207,21 +214,19 @@ export function CpxConnector({ onHeartRateUpdate }: CpxConnectorProps) {
             >
               Connect
             </button>
+
+            <button className="btn btn-ghost" onClick={() => connect()}>
+              Scan
+            </button>
           </>
         ) : (
-          <button
-            className="btn"
-            onClick={() => connect()}
-          >
-            Connect to Device
+          <button className="btn" onClick={() => connect()}>
+            Scan for devices
           </button>
         )}
 
         {connected && (
-          <button
-            className="btn text-red-500"
-            onClick={() => disconnect()}
-          >
+          <button className="btn btn-ghost" onClick={() => disconnect()}>
             Disconnect
           </button>
         )}
