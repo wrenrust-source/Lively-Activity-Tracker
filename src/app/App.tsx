@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AudioRecorder } from './components/audio-recorder';
 import { CpxConnector } from './components/cpx-connector';
 import { ActivityLog, LogEntry } from './components/activity-log';
@@ -19,6 +19,7 @@ export default function App() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [symptoms, setSymptoms] = useState<SymptomEntry[]>([]);
   const [currentHeartRate, setCurrentHeartRate] = useState<number>(0);
+  
 
   // store recent HR samples (newest first). persisted as ISO timestamps.
   const [hrSamples, setHrSamples] = useState<{ timestamp: string; bpm: number }[]>(() => {
@@ -190,18 +191,137 @@ export default function App() {
     setEntries(prev => [entry, ...prev]);
   };
 
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const headerMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    function onDocMouse(e: MouseEvent) {
+      if (headerMenuBtnRef.current && !headerMenuBtnRef.current.contains(e.target as Node)) {
+        setHeaderMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setHeaderMenuOpen(false);
+    }
+
+    if (headerMenuOpen) {
+      document.addEventListener('mousedown', onDocMouse);
+      document.addEventListener('keydown', onKey);
+    }
+    return () => {
+      document.removeEventListener('mousedown', onDocMouse);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [headerMenuOpen]);
+
+  const handleExportXml = () => {
+    try {
+      const xml = generateLogsXml(entries, symptoms);
+      const blob = new Blob([xml], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `health-logs-${new Date().toISOString()}.xml`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setHeaderMenuOpen(false);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Failed to export XML.');
+    }
+  };
+
+  const handleClearData = () => {
+    if (!confirm('Clear all saved entries, symptoms, and heart rate samples? This cannot be undone.')) return;
+    setEntries([]);
+    setSymptoms([]);
+    setHrSamples([]);
+    try {
+      localStorage.removeItem('hrSamples');
+      localStorage.removeItem('entries');
+      localStorage.removeItem('symptoms');
+    } catch {}
+    setHeaderMenuOpen(false);
+  };
+
   return (
     <div className="flex-1 overflow-y-auto pb-32">
       {/* Mobile-width centered container */}
       <div className="mx-auto w-full max-w-[420px] min-h-screen">
         {/* Mobile Header */}
         <div className="bg-primary text-primary-foreground px-4 py-2 pb-3 rounded-b-3xl shadow-lg">
-          <div className="flex items-center justify-center py-1">
-            <img
-              src={livelyLogo}
-              alt="Lively logo"
-              className="h-30 md:h-30 w-auto mx-auto object-contain"
-            />
+          <div className="relative">
+            <div className="flex items-center justify-center">
+              <img
+                src={livelyLogo}
+                alt="Lively logo"
+                className="h-14 md:h-20 w-auto mx-auto object-contain"
+              />
+            </div>
+
+            {/* 3-dot menu (top-right of header) */}
+            <div className="absolute right-3 top-3">
+              <button
+                ref={headerMenuBtnRef}
+                aria-label="More"
+                className="p-2 rounded-full hover:bg-white/20"
+                onClick={() => {
+                  if (headerMenuOpen) {
+                    setHeaderMenuOpen(false);
+                    setMenuPos(null);
+                    return;
+                  }
+                  const rect = headerMenuBtnRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const DROPDOWN_WIDTH = 176;
+                    const left = Math.min(rect.left, window.innerWidth - DROPDOWN_WIDTH - 8);
+                    const top = rect.bottom + 6;
+                    setMenuPos({ left, top });
+                  } else {
+                    setMenuPos({ left: window.innerWidth - 184, top: 64 });
+                  }
+                  setHeaderMenuOpen(true);
+                }}
+              >
+                <span className="text-lg leading-none">⋯</span>
+              </button>
+
+              {headerMenuOpen && menuPos && (
+                <>
+                  {/* overlay below the dropdown to close when clicking outside */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => {
+                      setHeaderMenuOpen(false);
+                      setMenuPos(null);
+                    }}
+                    aria-hidden
+                  />
+
+                  {/* dropdown positioned right under the button using computed coords */}
+                  <div
+                    style={{ left: menuPos.left, top: menuPos.top, width: 176 }}
+                    className="fixed z-50 bg-white rounded-md shadow-lg ring-1 ring-black/5 overflow-hidden"
+                  >
+                    <button
+                      onClick={() => { handleExportXml(); setHeaderMenuOpen(false); setMenuPos(null); }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50"
+                    >
+                      Export XML
+                    </button>
+                    <button
+                      onClick={() => { handleClearData(); setHeaderMenuOpen(false); setMenuPos(null); }}
+                      className="w-full text-left px-4 py-2 text-destructive hover:bg-slate-50"
+                    >
+                      Clear saved data
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
