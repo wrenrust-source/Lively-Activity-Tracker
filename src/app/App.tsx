@@ -92,6 +92,49 @@ export default function App() {
     setEntries(prev => [newEntry, ...prev]);
   };
 
+  function escapeXml(str: string) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  function generateLogsXml(entries: LogEntry[], symptoms: SymptomEntry[]) {
+    const exportedAt = new Date().toISOString();
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += `<HealthLogs exportedAt="${exportedAt}">\n`;
+
+    xml += '  <Entries>\n';
+    for (const e of entries) {
+      const id = escapeXml(String(e.id));
+      const ts = escapeXml((e.timestamp instanceof Date) ? e.timestamp.toISOString() : String(e.timestamp));
+      const text = escapeXml(e.text || '');
+      const audioId = e.audioId ? escapeXml(String(e.audioId)) : '';
+      xml += `    <Entry id="${id}" timestamp="${ts}">\n`;
+      xml += `      <Text>${text}</Text>\n`;
+      if (audioId) xml += `      <AudioId>${audioId}</AudioId>\n`;
+      xml += '    </Entry>\n';
+    }
+    xml += '  </Entries>\n';
+
+    xml += '  <Symptoms>\n';
+    for (const s of symptoms) {
+      const id = escapeXml(String(s.id));
+      const ts = escapeXml((s.timestamp instanceof Date) ? s.timestamp.toISOString() : String(s.timestamp));
+      const name = escapeXml(s.symptom || '');
+      const sev = String(s.severity ?? '');
+      xml += `    <Symptom id="${id}" timestamp="${ts}" severity="${sev}">\n`;
+      xml += `      <Name>${name}</Name>\n`;
+      xml += '    </Symptom>\n';
+    }
+    xml += '  </Symptoms>\n';
+
+    xml += '</HealthLogs>\n';
+    return xml;
+  }
+
   const handleDeleteEntry = (id: string) => {
     setEntries(prev => prev.filter(entry => entry.id !== id));
   };
@@ -169,6 +212,32 @@ export default function App() {
             <div className="px-4 py-6 space-y-6">
               {/* Health Insights */}
               <HealthInsights entries={entries} symptoms={symptoms} />
+
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    try {
+                      const xml = generateLogsXml(entries, symptoms);
+                      const blob = new Blob([xml], { type: 'application/xml' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `health-logs-${new Date().toISOString()}.xml`;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      URL.revokeObjectURL(url);
+                    } catch (e) {
+                      console.error('Error exporting logs', e);
+                      alert('Failed to export logs. See console for details.');
+                    }
+                  }}
+                >
+                  Export XML
+                </Button>
+              </div>
 
               {/* Smart Watch Card */}
               <div className="p-4">
