@@ -12,6 +12,7 @@ interface CombinedLogProps {
   onDeleteActivity: (id: string) => void;
   onDeleteSymptom: (id: string) => void;
   hrSamples?: { timestamp: string; bpm: number }[];
+  filterDate?: Date | null;
 }
 
 type CombinedEntry = 
@@ -24,6 +25,7 @@ export function CombinedLog({
   onDeleteActivity,
   onDeleteSymptom,
   hrSamples = [],
+  filterDate,
 }: CombinedLogProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const totalEntries = activities.length + symptoms.length;
@@ -103,9 +105,18 @@ export function CombinedLog({
   };
 
   // Combine and sort all entries by timestamp
+  function sameDay(a: Date, b?: Date | null) {
+    if (!b) return true;
+    const da = new Date(a);
+    return da.getFullYear() === b.getFullYear() && da.getMonth() === b.getMonth() && da.getDate() === b.getDate();
+  }
+
+  const filteredActivities = filterDate ? activities.filter(a => sameDay(a.timestamp, filterDate)) : activities;
+  const filteredSymptoms = filterDate ? symptoms.filter(s => sameDay(s.timestamp, filterDate)) : symptoms;
+
   const combinedEntries: CombinedEntry[] = [
-    ...activities.map((a): CombinedEntry => ({ type: 'activity', data: a })),
-    ...symptoms.map((s): CombinedEntry => ({ type: 'symptom', data: s })),
+    ...filteredActivities.map((a): CombinedEntry => ({ type: 'activity', data: a })),
+    ...filteredSymptoms.map((s): CombinedEntry => ({ type: 'symptom', data: s })),
   ].sort((a, b) => {
     const timeA = new Date(a.data.timestamp).getTime();
     const timeB = new Date(b.data.timestamp).getTime();

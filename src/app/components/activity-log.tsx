@@ -15,11 +15,19 @@ export interface LogEntry {
 interface ActivityLogProps {
   entries: LogEntry[];
   onDeleteEntry: (id: string) => void;
+  filterDate?: Date | null;
 }
 
-export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
+export function ActivityLog({ entries, onDeleteEntry, filterDate }: ActivityLogProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const shouldUseCarousel = entries.length > 3;
+  function sameDay(a: Date, b?: Date | null) {
+    if (!b) return true;
+    const da = new Date(a);
+    return da.getFullYear() === b.getFullYear() && da.getMonth() === b.getMonth() && da.getDate() === b.getDate();
+  }
+
+  const entriesToShow = filterDate ? entries.filter(e => sameDay(e.timestamp, filterDate)) : entries;
+  const shouldUseCarousel = entriesToShow.length > 3;
 
   // Restore scroll position with backwards-compatibility and clamping
   useEffect(() => {
@@ -103,7 +111,7 @@ export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
         <CardTitle className="text-lg">Activity Log</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 min-h-0 overflow-hidden">
-        {entries.length === 0 ? (
+        {entriesToShow.length === 0 ? (
           <div className="text-center text-muted-foreground py-8 text-sm">
             No entries yet. Tap the button below to start recording.
           </div>
@@ -113,7 +121,7 @@ export function ActivityLog({ entries, onDeleteEntry }: ActivityLogProps) {
             onScroll={handleScroll}
             className={shouldUseCarousel ? "h-96 overflow-y-auto pr-2 space-y-3" : "space-y-3"}
           >
-            {entries.map((entry) => {
+            {entriesToShow.map((entry) => {
               const hrStatus = getHeartRateStatus(entry.heartRate);
               return (
                 <div
