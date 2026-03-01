@@ -253,7 +253,7 @@ export default function App() {
       {/* Mobile-width centered container */}
       <div className="mx-auto w-full max-w-[420px] min-h-screen">
         {/* Mobile Header */}
-        <div className="bg-primary text-primary-foreground px-4 py-2 pb-3 rounded-b-3xl shadow-lg">
+        <div className="bg-primary text-primary-foreground px-4 pb-3 rounded-b-3xl shadow-lg">
           <div className="relative">
             <div className="flex items-center justify-center">
               <img
@@ -330,7 +330,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto pb-32">
           {/* Mobile-width centered container */}
           <div className="mx-auto w-full max-w-[420px] min-h-screen">
-            <div className="px-4 py-6 space-y-6">
+            <div className="px-4 py-2 space-y-2">
               {/* Health Insights */}
               <HealthInsights entries={entries} symptoms={symptoms} />
 
@@ -339,47 +339,50 @@ export default function App() {
                 <CpxConnector onHeartRateUpdate={handleHeartRateUpdate} onSaveHrSummary={handleSaveHrSummary} />
               </div>
 
-              {/* Date navigator for browsing logs by day */}
-              <div className="flex items-center justify-center gap-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedDate(prev => prev ? new Date(prev.getTime() - 24 * 60 * 60 * 1000) : new Date())}
-                >
-                  ◀
-                </Button>
-                <input
-                  type="date"
-                  className="text-center text-sm px-3 py-1 rounded border"
-                  value={selectedDate ? selectedDate.toISOString().slice(0,10) : ''}
-                  onChange={(e: any) => {
-                    const v = e.target.value;
-                    if (!v) {
-                      setSelectedDate(null);
-                    } else {
-                      // create Date at local midnight
-                      const d = new Date(v + 'T00:00:00');
-                      setSelectedDate(d);
-                    }
-                  }}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedDate(prev => prev ? new Date(prev.getTime() + 24 * 60 * 60 * 1000) : new Date())}
-                >
-                  ▶
-                </Button>
-              </div>
+              
 
-              {/* Tabs for different logs */}
+              {/* Tabs + date wrapped in a single primary container */}
+              
+
               <Tabs defaultValue="combined" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="combined">Combined</TabsTrigger>
-                  <TabsTrigger value="activities">Audio Log</TabsTrigger>
-                  <TabsTrigger value="symptoms">Symptoms</TabsTrigger>
-                  <TabsTrigger value="hrtrends">HR Trends</TabsTrigger>
-                </TabsList>
+                {/* Date navigator for browsing logs by day */}
+                <div className="mb-0">
+                  <div className="bg-muted  rounded-2xl p-3 shadow-sm">
+                    <div className="flex items-center justify-center mb-3">
+                    <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1">
+                      <button
+                        aria-label="Previous day"
+                        className="p-1 rounded hover:bg-white/5"
+                        onClick={() => {
+                          if (selectedDate) setSelectedDate(new Date(selectedDate.getTime() - 24 * 60 * 60 * 1000));
+                        }}
+                      >
+                        ◀
+                      </button>
+                      
+                      <div className="text-sm font-medium px-2">
+                        {selectedDate ? selectedDate.toLocaleDateString() : ''}
+                      </div>
+                      
+                      <button
+                        aria-label="Next day"
+                        className="p-1 rounded hover:bg-white/5"
+                        onClick={() => {
+                          if (selectedDate) setSelectedDate(new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000));
+                        }}
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  </div>
+                    <TabsList className="grid w-full grid-cols-4">
+                      <TabsTrigger value="combined">Combined</TabsTrigger>
+                      <TabsTrigger value="activities">Audio Log</TabsTrigger>
+                      <TabsTrigger value="symptoms">Symptoms</TabsTrigger>
+                      <TabsTrigger value="hrtrends">HR Trends</TabsTrigger>
+                    </TabsList>
+                  </div>
+                </div>
 
                 <TabsContent value="combined">
                   <CombinedLog
@@ -396,7 +399,7 @@ export default function App() {
                     <ActivityLog entries={entries} onDeleteEntry={handleDeleteEntry} filterDate={selectedDate} />
                 </TabsContent>
 
-                <TabsContent value="symptoms" className="mt-4 space-y-4">
+                <TabsContent value="symptoms" className="space-y-1">
                   <SymptomTracker onSymptomAdd={handleSymptomAdd} />
                   <SymptomLog symptoms={symptoms} onDeleteSymptom={handleDeleteSymptom} filterDate={selectedDate} />
                 </TabsContent>
