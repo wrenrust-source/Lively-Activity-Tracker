@@ -15,8 +15,9 @@ interface CombinedLogProps {
 
 type CombinedEntry = 
   | { type: 'activity'; data: LogEntry }
-  | { type: 'symptom'; data: SymptomEntry };
-
+  | { type: 'symptom'; data: SymptomEntry }
+  | { type: 'hr'; data: { timestamp: string; avg: number; high: number; low: number } };
+ 
 export function CombinedLog({
   activities,
   symptoms,
@@ -46,219 +47,194 @@ export function CombinedLog({
   };
 
   // Combine and sort all entries by timestamp
-  const combinedEntries: CombinedEntry[] = [
-    ...activities.map((a): CombinedEntry => ({ type: 'activity', data: a })),
-    ...symptoms.map((s): CombinedEntry => ({ type: 'symptom', data: s })),
-  ].sort((a, b) => {
-    const timeA = new Date(a.data.timestamp).getTime();
-    const timeB = new Date(b.data.timestamp).getTime();
-    return timeB - timeA;
-  });
-
-  // Group entries by date
-  const groupedByDate = combinedEntries.reduce((acc, entry) => {
-    const date = formatDate(entry.data.timestamp);
-    if (!acc[date]) {
-      acc[date] = [];
-    }
-    acc[date].push(entry);
-    return acc;
-  }, {} as Record<string, CombinedEntry[]>);
-
-  // Build HR summaries per 30-minute buckets, keyed by same date label
-  const hrSummariesByDate = (hrSamples || []).reduce((acc: Record<string, { timeLabel: string; avg: number; high: number; low: number }[]>, s) => {
-    try {
-      const dt = new Date(s.timestamp);
-      // build a bucket timestamp floored to the nearest 30 minutes
-      const mins = dt.getMinutes();
-      const flooredMin = mins < 30 ? 0 : 30;
-      const bucket = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), flooredMin, 0, 0);
-      const dateKey = formatDate(bucket.toISOString());
-      const bucketKey = bucket.toISOString();
-      acc[dateKey] = acc[dateKey] || [];
-      let b = acc[dateKey].find(x => x.timeLabel === bucketKey);
-      if (!b) {
-        // temporarily store as object with samples array on a hidden property
-        (acc as any)[dateKey + '::samples'] = (acc as any)[dateKey + '::samples'] || {};
-        (acc as any)[dateKey + '::samples'][bucketKey] = [(s.bpm)];
-        acc[dateKey].push({ timeLabel: bucketKey, avg: s.bpm, high: s.bpm, low: s.bpm });
-      } else {
-        // should not reach due to representation — leave for clarity
-      }
-    } catch {
-      // ignore malformed sample
-    }
-    return acc;
-  }, {});
-
-  // Finalize hr summaries (compute avg/high/low per bucket)
-  // We're reconstructing buckets because above we stored raw samples in a hidden map
-  const hrBuckets: Record<string, { timeLabel: string; avg: number; high: number; low: number }[]> = {};
-  const sampleBuckets: Record<string, number[]> = {};
+  // create hr buckets (30-minute) and produce hr summary entries
+  const hrBuckets: Record<string, { timestamp: string; avg: number; high: number; low: number }[]> = {};
   (hrSamples || []).forEach(s => {
     const dt = new Date(s.timestamp);
     const mins = dt.getMinutes();
     const flooredMin = mins < 30 ? 0 : 30;
-    const bucket = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), flooredMin, 0, 0);
-    const dateKey = formatDate(bucket.toISOString());
-    const bucketKey = bucket.toISOString();
-    sampleBuckets[bucketKey] = sampleBuckets[bucketKey] || [];
-    sampleBuckets[bucketKey].push(s.bpm);
-    hrBuckets[dateKey] = hrBuckets[dateKey] || [];
+    const bucketDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), dt.getHours(), flooredMin, 0, 0);
+    const bucketKey = bucketDate.toISOString();
+    hrBuckets[bucketKey] = hrBuckets[bucketKey] || [];
+    hrBuckets[bucketKey].push({ timestamp: bucketKey, avg: s.bpm, high: s.bpm, low: s.bpm });
   });
-  Object.keys(sampleBuckets).forEach(bucketKey => {
-    const dt = new Date(bucketKey);
-    const dateKey = formatDate(bucketKey);
-    const arr = sampleBuckets[bucketKey];
+
+  // collapse per-bucket samples into avg/high/low
+  const hrSummaryEntries: { timestamp: string; avg: number; high: number; low: number }[] = Object.keys(hrBuckets).map(k => {
+    const arr = hrBuckets[k].map(x => x.avg);
     const avg = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
     const high = Math.max(...arr);
     const low = Math.min(...arr);
-    hrBuckets[dateKey].push({ timeLabel: bucketKey, avg, high, low });
+    return { timestamp: k, avg, high, low };
   });
 
-  return (
-    <Card className="flex flex-col">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg">Combined Timeline</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {/* HR summaries: display for each date above entries (every 30 minutes) */}
-        {Object.keys(groupedByDate).length === 0 ? (
-          <div className="text-center text-muted-foreground py-8 text-sm">
-            No entries yet. Start logging activities and symptoms.
-          </div>
-        ) : (
-          Object.entries(groupedByDate).map(([date, entries]) => (
-            <div key={date} className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground px-1">
-                {date}
-              </h3>
-              {hrBuckets[date] && hrBuckets[date].length > 0 && (
-                <div className="space-y-2 px-1">
-                  {hrBuckets[date].sort((a, b) => new Date(a.timeLabel).getTime() - new Date(b.timeLabel).getTime()).map(h => (
-                    <div key={h.timeLabel} className="flex items-center justify-between bg-muted/40 rounded-md p-2 text-sm">
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(h.timeLabel).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                      <div className="flex gap-4">
-                        <div className="text-xs">Avg: <span className="font-medium">{h.avg}</span></div>
-                        <div className="text-xs">High: <span className="font-medium text-destructive">{h.high}</span></div>
-                        <div className="text-xs">Low: <span className="font-medium text-success">{h.low}</span></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {entries.map((entry) =>
-                entry.type === 'activity' ? (
-                  <ActivityItem
-                    key={entry.data.id}
-                    activity={entry.data as LogEntry}
-                    onDelete={onDeleteActivity}
-                    formatTime={formatTime}
-                  />
-                ) : (
-                  <SymptomItem
-                    key={entry.data.id}
-                    symptom={entry.data as SymptomEntry}
-                    onDelete={onDeleteSymptom}
-                    formatTime={formatTime}
-                    getSeverityColor={getSeverityColor}
-                  />
-                )
-              )}
-            </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ActivityItem({
-  activity,
-  onDelete,
-  formatTime,
-}: {
-  activity: LogEntry;
-  onDelete: (id: string) => void;
-  formatTime: (date: Date) => string;
-}) {
-  return (
-    <div className="border rounded-xl p-3 space-y-2 bg-blue-50/50 border-blue-200">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-blue-600" />
-            <span className="text-xs font-medium text-blue-600">Audio</span>
-            <span className="text-xs text-muted-foreground">
-              {formatTime(activity.timestamp)}
-            </span>
-          </div>
-          <p className="text-sm leading-relaxed">{activity.text}</p>
-          {activity.heartRate && (
-            <div className="flex items-center gap-2">
-              <Heart className="w-3 h-3 text-red-500" />
-              <span className="text-xs font-medium">{activity.heartRate} BPM</span>
-            </div>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onDelete(activity.id)}
-          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-        >
-          <Trash2 className="w-4 h-4" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SymptomItem({
-  symptom,
-  onDelete,
-  formatTime,
-  getSeverityColor,
-}: {
-  symptom: SymptomEntry;
-  onDelete: (id: string) => void;
-  formatTime: (date: Date) => string;
-  getSeverityColor: (severity: number) => string;
-}) {
-  return (
-    <div className="border rounded-xl p-3 space-y-2 bg-red-50/50 border-red-200">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-600" />
-            <span className="text-xs font-medium text-red-600">Symptom</span>
-            <span className="text-xs text-muted-foreground">
-              {formatTime(symptom.timestamp)}
-            </span>
-          </div>
-          <p className="text-sm font-medium">{symptom.symptom}</p>
-          <div className="flex items-center gap-1">
-            {[...Array(5)].map((_, i) => (
-              <div
-                key={i}
-                className={`w-5 h-2 rounded-full ${
-                  i < symptom.severity ? getSeverityColor(symptom.severity) : 'bg-muted'
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onDelete(symptom.id)}
-          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-        >
-          <Trash2 className="w-4 h-4" />
-        </Button>
-      </div>
-    </div>
-  );
-}
+  const combinedEntries: CombinedEntry[] = [
+    ...activities.map((a): CombinedEntry => ({ type: 'activity', data: a })),
+    ...symptoms.map((s): CombinedEntry => ({ type: 'symptom', data: s })),
+    // insert hr summaries as entries
+    ...hrSummaryEntries.map(h => ({ type: 'hr', data: h })),
+  ].sort((a, b) => {
+    const tA = new Date(a.data.timestamp).getTime();
+    const tB = new Date(b.data.timestamp).getTime();
+    // chronological order (oldest first)
+    return tA - tB;
+  });
+ 
+   // Group entries by date
+   const groupedByDate = combinedEntries.reduce((acc, entry) => {
+     const date = formatDate(entry.data.timestamp);
+     if (!acc[date]) acc[date] = [];
+     acc[date].push(entry);
+     return acc;
+   }, {} as Record<string, CombinedEntry[]>);
+ 
+   return (
+     <Card className="flex flex-col">
+       <CardHeader className="pb-3">
+         <CardTitle className="text-lg">Combined Timeline</CardTitle>
+       </CardHeader>
+       <CardContent>
+         {/* render combined entries (activities, symptoms, and HR summaries) in chronological order */}
+         {Object.keys(groupedByDate).length === 0 ? (
+           <div className="text-center text-muted-foreground py-8 text-sm">
+             No entries yet. Start logging activities and symptoms.
+           </div>
+         ) : (
+           Object.entries(groupedByDate).map(([date, entries]) => (
+             <div key={date} className="space-y-3">
+               <h3 className="text-sm font-semibold text-muted-foreground px-1">
+                 {date}
+               </h3>
+               {entries.map((entry) => {
+                 if (entry.type === 'activity') {
+                   return (
+                     <ActivityItem
+                       key={(entry.data as LogEntry).id}
+                       activity={entry.data as LogEntry}
+                       onDelete={onDeleteActivity}
+                       formatTime={formatTime}
+                     />
+                   );
+                 }
+                 if (entry.type === 'symptom') {
+                   return (
+                     <SymptomItem
+                       key={(entry.data as SymptomEntry).id}
+                       symptom={entry.data as SymptomEntry}
+                       onDelete={onDeleteSymptom}
+                       formatTime={formatTime}
+                       getSeverityColor={getSeverityColor}
+                     />
+                   );
+                 }
+                 // hr summary
+                 return (
+                   <div key={(entry.data as any).timestamp} className="rounded-md border p-2 bg-muted/30">
+                     <div className="flex items-center justify-between text-sm">
+                       <div className="text-xs text-muted-foreground">
+                         {new Date((entry.data as any).timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                       </div>
+                       <div className="flex gap-4">
+                         <div className="text-xs">Avg: <span className="font-medium">{(entry.data as any).avg}</span></div>
+                         <div className="text-xs">High: <span className="font-medium text-destructive">{(entry.data as any).high}</span></div>
+                         <div className="text-xs">Low: <span className="font-medium text-success">{(entry.data as any).low}</span></div>
+                       </div>
+                     </div>
+                   </div>
+                 );
+               })}
+             </div>
+           ))
+         )}
+       </CardContent>
+     </Card>
+   );
+ }
+ 
+ function ActivityItem({
+   activity,
+   onDelete,
+   formatTime,
+ }: {
+   activity: LogEntry;
+   onDelete: (id: string) => void;
+   formatTime: (date: Date) => string;
+ }) {
+   return (
+     <div className="border rounded-xl p-3 space-y-2 bg-blue-50/50 border-blue-200">
+       <div className="flex items-start justify-between gap-2">
+         <div className="flex-1 space-y-2">
+           <div className="flex items-center gap-2">
+             <MessageSquare className="w-4 h-4 text-blue-600" />
+             <span className="text-xs font-medium text-blue-600">Audio</span>
+             <span className="text-xs text-muted-foreground">
+               {formatTime(activity.timestamp)}
+             </span>
+           </div>
+           <p className="text-sm leading-relaxed">{activity.text}</p>
+           {activity.heartRate && (
+             <div className="flex items-center gap-2">
+               <Heart className="w-3 h-3 text-red-500" />
+               <span className="text-xs font-medium">{activity.heartRate} BPM</span>
+             </div>
+           )}
+         </div>
+         <Button
+           variant="ghost"
+           size="sm"
+           onClick={() => onDelete(activity.id)}
+           className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+         >
+           <Trash2 className="w-4 h-4" />
+         </Button>
+       </div>
+     </div>
+   );
+ }
+ 
+ function SymptomItem({
+   symptom,
+   onDelete,
+   formatTime,
+   getSeverityColor,
+ }: {
+   symptom: SymptomEntry;
+   onDelete: (id: string) => void;
+   formatTime: (date: Date) => string;
+   getSeverityColor: (severity: number) => string;
+ }) {
+   return (
+     <div className="border rounded-xl p-3 space-y-2 bg-red-50/50 border-red-200">
+       <div className="flex items-start justify-between gap-2">
+         <div className="flex-1 space-y-2">
+           <div className="flex items-center gap-2">
+             <AlertCircle className="w-4 h-4 text-red-600" />
+             <span className="text-xs font-medium text-red-600">Symptom</span>
+             <span className="text-xs text-muted-foreground">
+               {formatTime(symptom.timestamp)}
+             </span>
+           </div>
+           <p className="text-sm font-medium">{symptom.symptom}</p>
+           <div className="flex items-center gap-1">
+             {[...Array(5)].map((_, i) => (
+               <div
+                 key={i}
+                 className={`w-5 h-2 rounded-full ${
+                   i < symptom.severity ? getSeverityColor(symptom.severity) : 'bg-muted'
+                 }`}
+               />
+             ))}
+           </div>
+         </div>
+         <Button
+           variant="ghost"
+           size="sm"
+           onClick={() => onDelete(symptom.id)}
+           className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+         >
+           <Trash2 className="w-4 h-4" />
+         </Button>
+       </div>
+     </div>
+   );
+ }
