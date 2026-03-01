@@ -309,13 +309,13 @@ export default function App() {
                   >
                     <button
                       onClick={() => { handleExportXml(); setHeaderMenuOpen(false); setMenuPos(null); }}
-                      className="w-full text-left px-4 py-2 hover:bg-slate-50"
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50 text-black"
                     >
                       Export XML
                     </button>
                     <button
                       onClick={() => { handleClearData(); setHeaderMenuOpen(false); setMenuPos(null); }}
-                      className="w-full text-left px-4 py-2 text-destructive hover:bg-slate-50"
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50 text-black"
                     >
                       Clear saved data
                     </button>
